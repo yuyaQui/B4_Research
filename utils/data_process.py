@@ -53,7 +53,7 @@ def postprocess_img(pred, org_dir):
     if rows_rate > cols_rate:
         new_cols = (predictions_shape[1] * shape_r) // predictions_shape[0]
         pred = cv2.resize(pred, (new_cols, shape_r))
-        img = pred[:, ((pred.shape[1] - shape_c) // 2):((pred.shape[1] - shape_c) // 2 + shape_c)]
+        img = pred[:, ((pred.shape[1] - shape_c) // 2):((pred.shape[1] - shape_c) // 2 + shape_c)] #クロップ操作（縦幅はそのまま、横幅を操作）
     else:
         new_rows = (predictions_shape[0] * shape_c) // predictions_shape[1]
         pred = cv2.resize(pred, (shape_c, new_rows))

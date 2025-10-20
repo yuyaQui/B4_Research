@@ -27,7 +27,7 @@ else:
 model = model.to(device) 
 model.eval()
 
-test_img = r'example/sample_1.png' 
+test_img = r'example/sample_1.png'  
 
 img = preprocess_img(test_img) # padding and resizing input image into 384x288
 img = np.array(img)/255.
