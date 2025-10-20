@@ -21,18 +21,24 @@ def generate_image_from_quiz():
 
         prompt = (
             f"""
-                これからクイズの問題文と解答を入力するので、それらを参考に問題文を忠実に説明するイラストを生成してください。
-                生成する画像内には文字は含まないでください。
-                また画像以外（説明文など）は出力せず、生成した画像のみ出力してください。
-                またなるべく空白部分が少なくなるように画像を生成してください。
-                [問題文]
-                {question}
+            あなたは画像を生成するAIです。あなたの唯一のタスクは、以下の情報を基にイラストを生成することです。
+            あなたの出力は画像データでなければなりません。説明、文章、その他のテキストは一切出力しないでください。
 
-                [解答]
-                {answer}
-                """
+            # 指示
+            - 以下の[問題文]と[解答]の内容を忠実に表現したイラストを生成してください。
+            - [問題文]の文脈を正しく読み取り、文章がなくても画像だけで内容を人間が簡単に理解できるような画像の生成を目標としてください。
+            - イラスト内には、いかなる文字、単語、数字も含まないでください。
+            - イラストは、被写体が大きく描かれ、背景の空白が少なくなるように構成してください。
+            - スタイル: 適したスタインを適宜判断
+
+            # 情報
+            [問題文]
+            {question}
+
+            [解答]
+            {answer}
+            """
         )
-
         print("\n画像を生成中です...しばらくお待ちください。")
 
         response = client.models.generate_content(
@@ -45,7 +51,6 @@ def generate_image_from_quiz():
             # 回答の１番目の候補の内容の要素のクラスを抽出している
             if part.text is not None:
                 print(part.text)
-                return None, None
             if part.inline_data is not None:
                 # 画像のバイナリデータが存在している場合
                 image = Image.open(BytesIO(part.inline_data.data))
@@ -106,7 +111,7 @@ if __name__ == "__main__":
         # フォント設定（！要変更！）
         # お使いの環境に合わせて日本語フォントのパスを指定してください
         font_path = "C:/Windows/Fonts/meiryo.ttc"
-        font_size = 40
+        font_size = 28
         try:
             font = ImageFont.truetype(font_path, font_size)
         except IOError:
@@ -114,28 +119,29 @@ if __name__ == "__main__":
             font = ImageFont.load_default()
 
         # 描画オブジェクトを作成
-        draw = ImageDraw.Draw(generated_pil_image)
+        draw = ImageDraw.Draw(generated_pil_image) #generated_pil_image は Gemini が出力した画像
 
         # テキストの描画サイズを取得して中央揃えのための位置を計算
         text_bbox = draw.textbbox((0, 0), answer_text, font=font)
-        text_width = text_bbox[2] - text_bbox[0]
-        text_height = text_bbox[3] - text_bbox[1]
+        text_width = text_bbox[2] - text_bbox[0] # テキストの右下のx座標から左上のx座標を引く
+        text_height = text_bbox[3] - text_bbox[1] # テキストの右下のy座標から左上のy座標を引く
+        offset_height = 6
         text_x = max_x - (text_width / 2)
-        text_y = max_y - (text_height / 2)
+        text_y = max_y - (text_height / 2) + offset_height
 
         # テキストに影をつけて見やすくする
         shadow_color = "black"
-        for offset in range(1, 3):
-             draw.text((text_x - offset, text_y - offset), answer_text, font=font, fill=shadow_color)
-             draw.text((text_x + offset, text_y - offset), answer_text, font=font, fill=shadow_color)
-             draw.text((text_x - offset, text_y + offset), answer_text, font=font, fill=shadow_color)
-             draw.text((text_x + offset, text_y + offset), answer_text, font=font, fill=shadow_color)
+        offset = 1
+        draw.text((text_x - offset, text_y - offset), answer_text, font=font, fill=shadow_color)
+        draw.text((text_x + offset, text_y - offset), answer_text, font=font, fill=shadow_color)
+        draw.text((text_x - offset, text_y + offset), answer_text, font=font, fill=shadow_color)
+        draw.text((text_x + offset, text_y + offset), answer_text, font=font, fill=shadow_color)
 
         # テキスト本体を描画
         text_color = "white"
         draw.text((text_x, text_y), answer_text, font=font, fill=text_color)
 
         # ----- 4. 最終画像を保存 -----
-        final_output_filename = "final_result_with_answer.png"
+        final_output_filename = r"example/final_result_with_answer.png"
         generated_pil_image.save(final_output_filename)
         print(f"🎉 完成！解答テキスト付き画像を '{final_output_filename}' として保存しました。")
