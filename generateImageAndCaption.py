@@ -30,7 +30,7 @@ def generate_image_from_quiz():
             - [問題文]の文脈を正しく読み取り、文章がなくても画像だけで内容を人間が簡単に理解できるような画像の生成を目標としてください。
             - イラスト内には、いかなる文字、単語、数字を含まないでください。
             - イラストは、被写体が大きく描かれ、背景の空白が少なくなるように構成してください。
-            - スタイル: 適したスタインを適宜判断
+            - スタイル: 適したスタイルを適宜判断
 
             # 情報
             [問題文]
@@ -123,7 +123,9 @@ if __name__ == "__main__":
 
         saliency_center_x = int(max_x)
         saliency_center_y = int(max_y)
+
         square_size = 100
+        
         half_size = square_size // 2
 
         left = saliency_center_x - half_size
