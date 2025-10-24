@@ -143,6 +143,8 @@ if __name__ == "__main__":
             print(f"警告: 指定されたフォント '{font_path}' が見つかりません。デフォルトフォントを使用します。")
             font = ImageFont.load_default()
         
+
+
         text_bbox = draw.textbbox((0, 0), answer_text, font=font)
         text_width = text_bbox[2] - text_bbox[0]
         text_height = text_bbox[3] - text_bbox[1]
@@ -212,8 +214,17 @@ if __name__ == "__main__":
             text_y = img_height - text_height
             
         # テキスト本体を描画
-        text_color = "#00ff00"
-        draw.text((text_x, text_y), answer_text, font=font, fill=text_color)
+        fill_color = "#00ff00"
+        stroke_color = "black"
+        stroke_width = 3
+        draw.text(
+            (text_x, text_y),
+            answer_text,
+            font=font, 
+            fill=fill_color,
+            stroke_width=stroke_width,
+            stroke_fill=stroke_color
+        )
 
         # ----- 4. 最終画像を保存 -----
         final_output_filename = r"example/final_result_with_answer.png"
