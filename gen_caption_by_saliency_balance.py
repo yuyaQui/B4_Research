@@ -77,7 +77,7 @@ def generate_image_from_quiz():
         return None, None
 
 def distance(x, y, i, j):
-    return int(math.sqrt()) # ※ この関数は現在使われていませんが、定義として残しています
+    return int(math.sqrt((x - i)**2 + (y - j)**2)) # 距離計算関数を修正
 
 if __name__ == "__main__":
 
@@ -86,7 +86,7 @@ if __name__ == "__main__":
     if generated_pil_image is None:
         print("画像の生成に失敗したため、処理を終了します。")
     else:
-        generated_image_path = "generated_image.png"
+        generated_image_path = "example/generated_image.png" # generate_image_from_quizの出力パスと一致させる
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         print(f"CUDA利用可能: {torch.cuda.is_available()}")
 
@@ -179,24 +179,44 @@ if __name__ == "__main__":
             print("警告: Saliency Mapのクロップ領域が空です。中心座標をそのまま使います。")
             final_x, final_y = saliency_center_x, saliency_center_y
         else:
-            # 1. 勾配（Sobelフィルタ）を計算
-            # 64F (浮動小数点) で計算し、負の勾配も保持
-            grad_x = cv2.Sobel(saliency_crop, cv2.CV_64F, 1, 0, ksize=3)
-            grad_y = cv2.Sobel(saliency_crop, cv2.CV_64F, 0, 1, ksize=3)
-            
-            # 2. 勾配の「大きさ」を計算
-            grad_magnitude = cv2.magnitude(grad_x, grad_y)
-            
-            # 3. 勾配の大きさが最大となる位置のインデックスを取得 (クロップ内の相対座標)
-            max_loc_flat = np.argmax(grad_magnitude)
-            max_grad_y, max_grad_x = np.unravel_index(max_loc_flat, grad_magnitude.shape)
-            
-            # 4. 元画像全体での絶対座標に変換
-            final_x = crop_left + max_grad_x
-            final_y = crop_top + max_grad_y
+            # Saliency MapのX方向とY方向の勾配を計算 (cv2.CV_64Fで負の値も考慮)
+            grad_x_full = cv2.Sobel(saliency_map_np, cv2.CV_64F, 1, 0, ksize=5) # 全体で計算
+            grad_y_full = cv2.Sobel(saliency_map_np, cv2.CV_64F, 0, 1, ksize=5) # ksizeを5に調整して平滑化
 
-            print(f"✅ 計算完了。")
-            print(f"💡 Saliencyの勾配が最大となる座標 (x, y): ({final_x}, {final_y})")
+            # Saliencyが最も大きい点での勾配ベクトル
+            main_grad_x = grad_x_full[saliency_center_y, saliency_center_x]
+            main_grad_y = grad_y_full[saliency_center_y, saliency_center_x]
+            
+            # 勾配の大きさが0に近い場合は回避 (例: 完全に平坦なSaliencyの場合)
+            grad_magnitude_at_center = math.sqrt(main_grad_x**2 + main_grad_y**2)
+
+            # テキストボックスの大きさの目安
+            text_box_diag_length = math.sqrt(text_width**2 + text_height**2)
+            # 配置オフセット量を調整（テキストボックスの対角線の半分程度を基準に）
+            # Saliencyが減る方向に移動させたいので、勾配の反対方向へ
+            offset_factor = text_box_diag_length * 0.75 # 0.75は調整可能
+
+            if grad_magnitude_at_center > 0.1: # 勾配が十分に大きい場合
+                # 勾配の正規化ベクトル（Saliencyが増加する方向）
+                normalized_grad_x = main_grad_x / grad_magnitude_at_center
+                normalized_grad_y = main_grad_y / grad_magnitude_at_center
+
+                # Saliencyが減少する方向にオフセット
+                offset_x = -normalized_grad_x * offset_factor
+                offset_y = -normalized_grad_y * offset_factor
+
+                # 初期配置候補点 (saliency_center_x, saliency_center_y) にオフセットを加算
+                final_x = int(saliency_center_x + offset_x)
+                final_y = int(saliency_center_y + offset_y)
+            else:
+                # 勾配が小さい場合はSaliency中心から少しずらすなど、別のロジックを検討
+                # 今回はSaliency中心から少し右下にオフセットする（例）
+                print("警告: Saliency中心での勾配が小さいため、デフォルトのオフセットを使用します。")
+                final_x = saliency_center_x + half_size // 2
+                final_y = saliency_center_y + half_size // 2
+
+            print(f"✅ 勾配計算とオフセット完了。")
+            print(f"💡 最適なテキスト配置座標 (x, y): ({final_x}, {final_y})")
 
         # ----- 3. 元画像に解答テキストを描画 -----
         
