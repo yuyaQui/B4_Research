@@ -106,7 +106,7 @@ if __name__ == "__main__":
         model.eval()
 
         # --- 2-2. 入力画像の前処理 ---
-        img = preprocess_img(generated_image_path)
+        img = preprocess_img(generated_image_path) # 画像をクロップ&Numpyに変換
         img = np.array(img)/255.
         img = np.expand_dims(np.transpose(img,(2,0,1)),axis=0)
 
@@ -117,7 +117,7 @@ if __name__ == "__main__":
         # --- 2-4. 出力の後処理 ---
         toPIL = transforms.ToPILImage()
         pic = toPIL(pred_saliency_tensor.squeeze())
-        saliency_map_np = postprocess_img(pic, generated_image_path)
+        saliency_map_np = postprocess_img(pic, generated_image_path) # Numpy配列に変換
         
         # --- 2-5. 顕著性マップの保存 ---
         saliency_output_filename = r'example/result_saliency.png'
@@ -132,15 +132,23 @@ if __name__ == "__main__":
         saliency_center_x = int(max_x)
         saliency_center_y = int(max_y)
 
-        # --- テキスト描画の準備 ---
-        square_size = 100
-        half_size = square_size // 2
+        saliency_threshold = 50
+        print(f"\n Saliencyの閾値を{saliency_threshold}として切り出し領域を計算します")
 
-        # Saliency中心から探索する領域を定義
-        left = saliency_center_x - half_size
-        top = saliency_center_y - half_size
-        right = saliency_center_x + half_size
-        bottom = saliency_center_y + half_size
+        y_coords, x_coords = np.where(saliency_map_np > saliency_threshold)
+
+        top = float('inf')
+        bottom = 0
+        left = float('inf')
+        right = 0
+
+        if y_coords.size > 0: # バウンディングボックスの頂点
+            top = np.min(y_coords)
+            bottom = np.max(y_coords)
+            left = np.min(x_coords)
+            right = np.max(x_coords)
+        else:
+            print(f"閾値{saliency_threshold}を超えるSaliency領域が見つかりませんでした。")
 
         draw = ImageDraw.Draw(generated_pil_image)
         
@@ -156,94 +164,57 @@ if __name__ == "__main__":
         text_bbox = draw.textbbox((0, 0), answer_text, font=font)
         text_width = text_bbox[2] - text_bbox[0]
         text_height = text_bbox[3] - text_bbox[1]
-        
+
+        text_half_width = text_width // 2
+        text_half_height = text_height // 2
+
         img_width, img_height = generated_pil_image.size
+
+        gray_std_threshold = 1
+        gray_flag_var = float('inf')
+        final_x, final_y = saliency_center_x, saliency_center_y
+
+        for i in range(left, right):
+            for j in range(top, bottom):
+                crop_left = max(0, i - text_half_width)
+                crop_top = max(0, j - text_half_height)
+                crop_right = min(img_width, i + text_half_width)
+                crop_bottom = min(img_height, j + text_half_height)
+
+                if crop_left < crop_right and crop_top < crop_bottom:
+                    patch_pil = generated_pil_image.crop((crop_left, crop_top, crop_right, crop_bottom))
+                    patch_gray = patch_pil.convert("L")
+                    patch_np = np.array(patch_gray)
+
+                    if patch_np.size == 0:
+                        continue
+
+                    gray_sum = np.sum(patch_np)
+                    gray_std = np.std(patch_np)
+                    factor_var = gray_sum + gray_std
+
+                    if gray_std < gray_std_threshold:
+                        continue
+
+                    if factor_var < gray_flag_var:
+                        gray_flag_var = factor_var
+                        final_x, final_y = i, j
         
-        # --- 2-7. Saliency Mapの勾配が最大となる位置を探索 ---
-        print(f"\n🔍 Saliency Mapの注目領域 ({left}, {top}) から ({right}, {bottom}) の勾配を計算します...")
+        print(f"✅ スキャン完了。")
+        print(f"💡 最適なテキスト配置座標 (x, y): ({final_x}, {final_y})")
 
-        # Saliency Mapのサイズを取得 (NumPyは H, W の順)
-        saliency_height, saliency_width = saliency_map_np.shape
+        text_x = final_x - text_half_width
+        text_y = final_y - text_half_height
 
-        # 座標が画像境界をはみ出さないように調整 (クロップ座標を決定)
-        crop_left = max(0, left)
-        crop_top = max(0, top)
-        crop_right = min(saliency_width, right)
-        crop_bottom = min(saliency_height, bottom)
-
-        # 注目領域（Saliencyの中心周辺）を切り出す
-        # NumPyのスライス [y1:y2, x1:x2]
-        saliency_crop = saliency_map_np[crop_top:crop_bottom, crop_left:crop_right]
-
-        if saliency_crop.size == 0:
-            print("警告: Saliency Mapのクロップ領域が空です。中心座標をそのまま使います。")
-            final_x, final_y = saliency_center_x, saliency_center_y
-        else:
-            # Saliency MapのX方向とY方向の勾配を計算 (cv2.CV_64Fで負の値も考慮)
-            grad_x_full = cv2.Sobel(saliency_map_np, cv2.CV_64F, 1, 0, ksize=5) # 全体で計算
-            grad_y_full = cv2.Sobel(saliency_map_np, cv2.CV_64F, 0, 1, ksize=5) # ksizeを5に調整して平滑化
-
-            # Saliencyが最も大きい点での勾配ベクトル
-            main_grad_x = grad_x_full[saliency_center_y, saliency_center_x]
-            main_grad_y = grad_y_full[saliency_center_y, saliency_center_x]
-            
-            # 勾配の大きさが0に近い場合は回避 (例: 完全に平坦なSaliencyの場合)
-            grad_magnitude_at_center = math.sqrt(main_grad_x**2 + main_grad_y**2)
-
-            # テキストボックスの大きさの目安
-            text_box_diag_length = math.sqrt(text_width**2 + text_height**2)
-            # 配置オフセット量を調整（テキストボックスの対角線の半分程度を基準に）
-            # Saliencyが減る方向に移動させたいので、勾配の反対方向へ
-            offset_factor = text_box_diag_length * 0.75 # 0.75は調整可能
-
-            if grad_magnitude_at_center > 0.1: # 勾配が十分に大きい場合
-                # 勾配の正規化ベクトル（Saliencyが増加する方向）
-                normalized_grad_x = main_grad_x / grad_magnitude_at_center
-                normalized_grad_y = main_grad_y / grad_magnitude_at_center
-
-                # Saliencyが減少する方向にオフセット
-                offset_x = -normalized_grad_x * offset_factor
-                offset_y = -normalized_grad_y * offset_factor
-
-                # 初期配置候補点 (saliency_center_x, saliency_center_y) にオフセットを加算
-                final_x = int(saliency_center_x + offset_x)
-                final_y = int(saliency_center_y + offset_y)
-            else:
-                # 勾配が小さい場合はSaliency中心から少しずらすなど、別のロジックを検討
-                # 今回はSaliency中心から少し右下にオフセットする（例）
-                print("警告: Saliency中心での勾配が小さいため、デフォルトのオフセットを使用します。")
-                final_x = saliency_center_x + half_size // 2
-                final_y = saliency_center_y + half_size // 2
-
-            print(f"✅ 勾配計算とオフセット完了。")
-            print(f"💡 最適なテキスト配置座標 (x, y): ({final_x}, {final_y})")
-
-        # ----- 3. 元画像に解答テキストを描画 -----
-        
-        offset_height = 6 # フォントのベースライン微調整用
-        # テキストを final_x, final_y の中心に配置するための左上座標を計算
-        text_x = final_x - (text_width / 2)
-        text_y = final_y - (text_height / 2) + offset_height
-        
-        # テキストが画像からはみ出さないように座標を最終調整
-        
-        # 左端のチェックと調整
         if text_x < 0:
             text_x = 0
-        
-        # 右端のチェックと調整
-        if text_x + text_width > img_width:
-            text_x = img_width - text_width
-            
-        # 上端のチェックと調整
+        if text_x > img_width - text_half_width * 2:
+            text_x = img_width - text_half_width * 2
         if text_y < 0:
             text_y = 0
-            
-        # 下端のチェックと調整
-        if text_y + text_height > img_height:
-            text_y = img_height - text_height
-            
-        # テキスト本体を描画
+        if text_y > img_height + text_half_height * 2:
+            text_y = img_height + text_half_height * 2
+        
         fill_color = "#00ff00"
         stroke_color = "black"
         stroke_width = 3
@@ -256,7 +227,6 @@ if __name__ == "__main__":
             stroke_fill=stroke_color
         )
 
-        # ----- 4. 最終画像を保存 -----
         final_output_filename = r"example/final_result_with_answer.png"
         generated_pil_image.save(final_output_filename)
         print(f"🎉 完成！解答テキスト付き画像を '{final_output_filename}' として保存しました。")

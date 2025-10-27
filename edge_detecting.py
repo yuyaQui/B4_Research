@@ -28,7 +28,7 @@ except Exception as e:
 laplacian = cv2.Laplacian(img,cv2.CV_64F)
 
 plt.subplot(2,1,1), plt.imshow(img)
-plt.title('Original'), plt.xticks([]), plt.yticks([])
+plt.title('Original'), plt.xticks([]), plt.yticks([]) # x,y軸のメモリを表示しないように設定
 plt.subplot(2,1,2), plt.imshow(laplacian)
 plt.title('Laplacian'), plt.xticks([]), plt.yticks([])
 
