@@ -31,6 +31,7 @@ def generate_image_from_quiz(output_image_path):
             - 以下の[問題文]と[解答]の内容を忠実に表現したイラストを生成してください。
             - [問題文]の文脈を正しく読み取り、文章がなくても画像だけで内容を人間が簡単に理解できるような画像の生成を目標としてください。
             - イラスト内には、いかなる文字、単語、数字を含ないでください。
+            - イラスト内には、英語を配置しないでください。
             - イラストは、被写体が大きく描かれ、背景の空白が少なくなるように構成してください。
             - スタイル: 適したスタイルを適宜判断
 
@@ -122,7 +123,9 @@ if __name__ == "__main__":
     MASK_SALIENCY_THRESHOLD_FOR_RADIUS = 100 
     
     # マスク半径の最小値（ピーク周辺を確実にマスクするため）
-    MIN_MASK_RADIUS = 50 
+    MIN_MASK_RADIUS = 50
+
+    POS_OFFSET = 20
 
     # --- 4. テキスト描画設定 ---
     FONT_SIZE = 36
@@ -298,12 +301,10 @@ if __name__ == "__main__":
         text_half_width = text_width // 2
         text_half_height = text_height // 2
 
-        pos_offset = 30
-
-        left = final_x - pos_offset
-        top = final_y - pos_offset
-        right = final_x + pos_offset
-        bottom = final_y + pos_offset
+        left = final_x - POS_OFFSET
+        top = final_y - POS_OFFSET
+        right = final_x + POS_OFFSET
+        bottom = final_y + POS_OFFSET
 
         factor_flag = float('inf')
 
