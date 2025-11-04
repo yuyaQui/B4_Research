@@ -2,6 +2,7 @@ from google import genai
 from PIL import Image
 from io import BytesIO
 import os
+import csv
 
 def generate_image_from_quiz(question: str, answer: str) -> Image.Image:
     try:
@@ -64,3 +65,20 @@ def generate_image_from_quiz(question: str, answer: str) -> Image.Image:
     except Exception as e:
         print(f"エラーが発生しました: {e}")
         return None
+
+def load_quizzes_and_generate_images(quiz_csv_path: str) -> tuple[list[Image.Image], list[tuple[str, str]]]:
+    images = []
+    quizes = []
+    with open(quiz_csv_path, newline='', encoding='utf-8') as csvfile:
+        reader = csv.reader(csvfile)
+        for row in reader:
+            question = row[0]
+            answer = row[1]
+            image = generate_image_from_quiz(question, answer)
+            if image is not None:
+                images.append(image)
+                quizes.append((question, answer))
+            else:
+                print(f"画像の生成に失敗しました: {question}, {answer}")
+                continue
+    return images, quizes
