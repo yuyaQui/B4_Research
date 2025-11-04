@@ -8,6 +8,7 @@ from torch.utils.data import Dataset, DataLoader
 
 def preprocess_img(img, channels=3):
 
+    type(img)
     shape_r = 288
     shape_c = 384
     img_padded = np.ones((shape_r, shape_c, channels), dtype=np.uint8)

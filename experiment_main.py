@@ -28,8 +28,9 @@ if __name__ == "__main__":
             model = model.to(device)
             model.eval()
         
-        answer = unknown_quizes_and_images[1]
-        generated_image = unknown_quizes_and_images[2]
+        answer = unknown_quizes_and_images[i][1]
+        generated_image = unknown_quizes_and_images[i][2]
+        type(generated_image)
         x, y = find_optimal_text_position(generated_image, model, device)
         image_with_caption = draw_answer_text_on_image(generated_image, answer, x, y)
-        print(image_with_caption)
+        image_with_caption.show()

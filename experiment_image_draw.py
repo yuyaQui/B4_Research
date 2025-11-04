@@ -3,7 +3,7 @@ import numpy as np
 import torch
 from PIL import ImageDraw, ImageFont
 from torchvision import transforms
-from utils.data_process import preprocess_img, postprocess_img
+from experiment_data_process import preprocess_img, postprocess_img
 
 MIN_PEAKS_TO_FIND = 2
 MAX_PEAKS_TO_FIND = 5
@@ -20,7 +20,7 @@ STROKE_WIDTH = 3        # 縁取りの太さ
 POS_OFFSET = 20
 
 def find_optimal_text_position(generated_image, model, device):
-        org_img = cv2.cvtColor(np.array(generated_image), cv2.COLOR_RGB2BGR)
+        org_img = np.array(generated_image.convert("RGB"))
         img = preprocess_img(org_img)
         img = np.array(img) / 255
         img = np.expand_dims(np.transpose(img, (2, 0, 1)), axis=0)
