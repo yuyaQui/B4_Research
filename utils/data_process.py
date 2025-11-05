@@ -12,7 +12,6 @@ def preprocess_img(img_dir, channels=3):
         img = cv2.imread(img_dir, 0)
     elif channels == 3:
         img = cv2.imread(img_dir)
-        type(img)
 
     shape_r = 288
     shape_c = 384
