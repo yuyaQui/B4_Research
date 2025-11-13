@@ -159,15 +159,27 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
 ])
 # ▲▲▲ 変更点: ここまで ▲▲▲
 
-with tab1:    
+with tab1:
     max_quizzes = st.number_input(
-        "最大クイズ数（前半と後半に均等に分割されます）", 
+        "最大クイズ数（前半と後半に均等に分割されます）",
         min_value=2, # 最低2問（各1問）
-        max_value=1000, 
-        value=80, 
-        step=1, 
+        max_value=1000,
+        value=80,
+        step=1,
         key="max_quizzes"
     )
+
+    # ▼▼▼ 変更点: 「問題順序」ラジオボタンを追加 ▼▼▼
+    st.radio(
+        "問題順序（パターン割り当て）",
+        ["1", "2"],
+        key="quiz_order_radio", # セッション状態に保存されるキー
+        horizontal=True,
+        index=0, # デフォルトは "1"
+        help="1: 前半グループを「パターン1 (Saliency)」に、後半グループを「パターン2 (下部固定)」に割り当てます。\n\n"
+             "2: 前半グループを「パターン2 (下部固定)」に、後半グループを「パターン1 (Saliency)」に割り当てます（入れ替え）。"
+    )
+    # ▲▲▲ 変更点: ここまで ▲▲▲
 
     if 'quiz_started' not in st.session_state:
         st.session_state.quiz_started = False
@@ -187,19 +199,19 @@ with tab1:
         st.session_state.p2_quiz_started = False
         st.session_state.p1_quiz_idx = 0
         st.session_state.p2_quiz_idx = 0
-        
-        max_to_reset = max(50, st.session_state.max_quizzes_on_start) 
-        for i in range(max_to_reset): 
+
+        max_to_reset = max(50, st.session_state.max_quizzes_on_start)
+        for i in range(max_to_reset):
             if f"quiz_{i}" in st.session_state:
                 del st.session_state[f"quiz_{i}"]
-                
+
         st.session_state.max_quizzes_on_start = int(max_quizzes)
-        
+
         # --- ▼ ターミナル出力（タブ1で出題されなかった問題） ▼ ---
         try:
             total_quizzes_in_set = len(st.session_state.experiment_set)
             num_presented = st.session_state.max_quizzes_on_start
-            
+
             if total_quizzes_in_set > num_presented:
                 # max_quizzes_on_start から最後までが「出題されなかった」インデックス
                 unpresented_indices = list(range(num_presented, total_quizzes_in_set))
@@ -214,37 +226,66 @@ with tab1:
             print(f"ターミナル出力中にエラーが発生しました: {e}")
         # --- ▲ ターミナル出力（ここまで） ▲ ---
 
-        st.rerun() 
+        st.rerun()
 
     if st.session_state.quiz_started and not st.session_state.quiz_selection_done:
         # 変更: 戻り値を3つ受け取る
         unknown_p1, unknown_p2, completed = ask_unknown_words_ui(
-            st.session_state.experiment_set, 
+            st.session_state.experiment_set,
             max_count=st.session_state.max_quizzes_on_start
         )
-        
+
         if completed:
-            # 変更: p1 と p2 をセッションに保存
+            
+            # ▼▼▼ 変更点: 問題順序「2」が選択されていたら p1 と p2 を入れ替える ▼▼▼
+            # st.radio は key でセッション状態に値を保存するため、st.session_state.quiz_order_radio でアクセス
+            if st.session_state.get("quiz_order_radio") == "2":
+                print("\n--- [タブ1] 問題順序「2」が選択されたため、part1とpart2を入れ替えます ---")
+                # unknown_p1 と unknown_p2 の中身を交換
+                unknown_p1, unknown_p2 = unknown_p2, unknown_p1
+            else:
+                print("\n--- [タブ1] 問題順序「1」が選択されました (通常) ---")
+            # ▲▲▲ 変更点: ここまで ▲▲▲
+
+            # 変更: p1 と p2 をセッションに保存 (この時点で unknown_p1/p2 は入れ替え済み（該当する場合）)
             st.session_state.unknown_quizes_part1 = unknown_p1
             st.session_state.unknown_quizes_part2 = unknown_p2
-            
+
             # 変更: それぞれをシャッフル
             random.shuffle(st.session_state.unknown_quizes_part1)
             random.shuffle(st.session_state.unknown_quizes_part2)
-            
+
             st.session_state.quiz_selection_done = True
             st.session_state.quiz_started = False
-            
+
             # 変更: メッセージを更新
             st.success(f"前半 {len(st.session_state.unknown_quizes_part1)}個, "
-                       f"後半 {len(st.session_state.unknown_quizes_part2)}個 の未知の単語が見つかりました！")
-            st.rerun() 
+                         f"後半 {len(st.session_state.unknown_quizes_part2)}個 の未知の単語が見つかりました！")
             
+            # ▼▼▼ 変更点: 割り当て確認メッセージ ▼▼▼
+            if st.session_state.get("quiz_order_radio") == "2":
+                st.info("問題順序「2」が選択されたため、前半グループが「パターン2 (下部固定)」、後半グループが「パターン1 (Saliency)」に割り当てられます。")
+            else:
+                st.info("問題順序「1」が選択されたため、前半グループが「パターン1 (Saliency)」、後半グループが「パターン2 (下部固定)」に割り当てられます。")
+            # ▲▲▲ 変更点: ここまで ▲▲▲
+            
+            st.rerun()
+
     if st.session_state.quiz_selection_done:
         # 変更: メッセージを更新
         st.info(f"✅ 前半 {len(st.session_state.unknown_quizes_part1)}個, "
-                f"後半 {len(st.session_state.unknown_quizes_part2)}個 の未知の単語が選択されました。")
+                 f"後半 {len(st.session_state.unknown_quizes_part2)}個 の未知の単語が選択されました。")
 
+        # ▼▼▼ 変更点: 割り当て確認メッセージ（選択完了後） ▼▼▼
+        if st.session_state.get("quiz_order_radio") == "2":
+            st.warning("問題順序「2」（入れ替え）が選択されています。\n"
+                       f"* 前半グループ ({len(st.session_state.unknown_quizes_part1)}個) は **パターン2 (下部固定)** で学習・テストします。\n"
+                       f"* 後半グループ ({len(st.session_state.unknown_quizes_part2)}個) は **パターン1 (Saliency)** で学習・テストします。")
+        else:
+            st.success("問題順序「1」（通常）が選択されています。\n"
+                       f"* 前半グループ ({len(st.session_state.unknown_quizes_part1)}個) は **パターン1 (Saliency)** で学習・テストします。\n"
+                       f"* 後半グループ ({len(st.session_state.unknown_quizes_part2)}個) は **パターン2 (下部固定)** で学習・テストします。")
+        # ▲▲▲ 変更点: ここまで ▲▲▲
 with tab2:    
     if not st.session_state.quiz_selection_done:
         st.warning("まず「クイズ選択」タブで未知の単語を選択してください。")
@@ -504,7 +545,9 @@ with tab4:
                 st.session_state.pattern2_started = False
                 st.rerun()
 
-# ▼▼▼ 変更点: タブ5を追加 ▼▼▼
+# (tab1, tab2, tab3, tab4 のコードは省略)
+
+# ▼▼▼ 変更点: タブ5 (ランダム出題対応) ▼▼▼
 with tab5:
     # クイズ用のセッション状態初期化
     if 'p1_quiz_started' not in st.session_state:
@@ -515,8 +558,11 @@ with tab5:
         st.session_state.p1_quiz_score = 0
     if 'p1_quiz_answered' not in st.session_state:
         # 現在の問題に回答済みかどうかのフラグ
-        st.session_state.p1_quiz_answered = False 
-    
+        st.session_state.p1_quiz_answered = False
+    # (変更) ランダムな順序を保存するリスト
+    if 'p1_quiz_order' not in st.session_state:
+        st.session_state.p1_quiz_order = []
+
     quiz_data = st.session_state.processed_images_p1
     total_quizzes = len(quiz_data)
 
@@ -530,7 +576,14 @@ with tab5:
             st.session_state.p1_quiz_idx = 0
             st.session_state.p1_quiz_score = 0
             st.session_state.p1_quiz_answered = False
-            # 過去の回答をクリア
+
+            # ▼▼▼ 変更点: インデックスリストを作成しシャッフル ▼▼▼
+            st.session_state.p1_quiz_order = list(range(total_quizzes))
+            random.shuffle(st.session_state.p1_quiz_order)
+            print(f"\n--- [タブ5] クイズ順序 (ランダム): {st.session_state.p1_quiz_order} ---")
+            # ▲▲▲ 変更点: ここまで ▲▲▲
+
+            # 過去の回答をクリア (キーは 0 から total_quizzes-1 なので i でOK)
             for i in range(total_quizzes):
                 if f"p1_quiz_radio_{i}" in st.session_state:
                     del st.session_state[f"p1_quiz_radio_{i}"]
@@ -538,14 +591,21 @@ with tab5:
                     del st.session_state[f"p1_quiz_options_{i}"]
             st.rerun()
     else:
+        # curr_idx は「今何問目か」(0, 1, 2...)
         curr_idx = st.session_state.p1_quiz_idx
-        
+
         if curr_idx < total_quizzes:
-            item = quiz_data[curr_idx]
+
+            # ▼▼▼ 変更点: シャッフルされた順序から「実際のデータインデックス」を取得 ▼▼▼
+            # p1_quiz_order[0] が 5 なら、1問目は quiz_data[5] を使う
+            actual_idx = st.session_state.p1_quiz_order[curr_idx]
+            item = quiz_data[actual_idx]
+            # ▲▲▲ 変更点: ここまで ▲▲▲
+
             question = item['question']
             correct_answer = item['answer']
-            
-            # 選択肢をシャッフル (セッションに保存してシャッフルが固定されるようにする)
+
+            # 選択肢キー (「何問目か(curr_idx)」に紐づける)
             options_key = f"p1_quiz_options_{curr_idx}"
             if options_key not in st.session_state:
                 options = [correct_answer, item['dammy1'], item['dammy2'], item['dammy3']]
@@ -556,7 +616,8 @@ with tab5:
 
             st.subheader(f"問題 {curr_idx + 1} / {total_quizzes}")
             st.write(f"**問題:** {question}")
-            
+
+            # ラジオボタンキー (「何問目か(curr_idx)」に紐づける)
             radio_key = f"p1_quiz_radio_{curr_idx}"
             user_answer = st.radio(
                 "解答を選択してください:",
@@ -567,7 +628,7 @@ with tab5:
             )
 
             if not st.session_state.p1_quiz_answered:
-                # 回答ボタン
+                # 回答ボタン (「何問目か(curr_idx)」に紐づける)
                 if st.button("回答を確定", key=f"p1_quiz_submit_{curr_idx}"):
                     if user_answer is None:
                         st.warning("解答を選択してください。")
@@ -577,20 +638,22 @@ with tab5:
                             st.session_state.p1_quiz_score += 1
                         st.session_state.p1_quiz_idx += 1
                         st.session_state.p1_quiz_answered = False
-                        st.rerun() 
+                        st.rerun() # 結果を表示するために reran
         else:
             # クイズ終了
-            st.balloons()
-            st.success(f"クイズ終了！ お疲れ様でした。")
             st.metric(
                 label="最終スコア",
                 value=f"{st.session_state.p1_quiz_score} / {total_quizzes}",
             )
             if st.button("もう一度挑戦する", key="p1_quiz_reset"):
                 st.session_state.p1_quiz_started = False
+                # (念のため) ランダム順序もリセット
+                st.session_state.p1_quiz_order = []
                 st.rerun()
+# ▲▲▲ 変更点: ここまで ▲▲▲
 
 
+# ▼▼▼ 変更点: タブ6 (ランダム出題対応) ▼▼▼
 with tab6:
     # クイズ用のセッション状態初期化
     if 'p2_quiz_started' not in st.session_state:
@@ -601,8 +664,11 @@ with tab6:
         st.session_state.p2_quiz_score = 0
     if 'p2_quiz_answered' not in st.session_state:
         # 現在の問題に回答済みかどうかのフラグ
-        st.session_state.p2_quiz_answered = False 
-    
+        st.session_state.p2_quiz_answered = False
+    # (変更) ランダムな順序を保存するリスト
+    if 'p2_quiz_order' not in st.session_state:
+        st.session_state.p2_quiz_order = []
+
     quiz_data = st.session_state.processed_images_p2
     total_quizzes = len(quiz_data)
 
@@ -616,7 +682,14 @@ with tab6:
             st.session_state.p2_quiz_idx = 0
             st.session_state.p2_quiz_score = 0
             st.session_state.p2_quiz_answered = False
-            # 過去の回答をクリア
+
+            # ▼▼▼ 変更点: インデックスリストを作成しシャッフル ▼▼▼
+            st.session_state.p2_quiz_order = list(range(total_quizzes))
+            random.shuffle(st.session_state.p2_quiz_order)
+            print(f"\n--- [タブ6] クイズ順序 (ランダム): {st.session_state.p2_quiz_order} ---")
+            # ▲▲▲ 変更点: ここまで ▲▲▲
+
+            # 過去の回答をクリア (キーは 0 から total_quizzes-1 なので i でOK)
             for i in range(total_quizzes):
                 if f"p2_quiz_radio_{i}" in st.session_state:
                     del st.session_state[f"p2_quiz_radio_{i}"]
@@ -624,14 +697,20 @@ with tab6:
                     del st.session_state[f"p2_quiz_options_{i}"]
             st.rerun()
     else:
+        # curr_idx は「今何問目か」(0, 1, 2...)
         curr_idx = st.session_state.p2_quiz_idx
-        
+
         if curr_idx < total_quizzes:
-            item = quiz_data[curr_idx]
+
+            # ▼▼▼ 変更点: シャッフルされた順序から「実際のデータインデックス」を取得 ▼▼▼
+            actual_idx = st.session_state.p2_quiz_order[curr_idx]
+            item = quiz_data[actual_idx]
+            # ▲▲▲ 変更点: ここまで ▲▲▲
+
             question = item['question']
             correct_answer = item['answer']
-            
-            # 選択肢をシャッフル (セッションに保存してシャッフルが固定されるようにする)
+
+            # 選択肢キー (「何問目か(curr_idx)」に紐づける)
             options_key = f"p2_quiz_options_{curr_idx}"
             if options_key not in st.session_state:
                 options = [correct_answer, item['dammy1'], item['dammy2'], item['dammy3']]
@@ -642,7 +721,8 @@ with tab6:
 
             st.subheader(f"問題 {curr_idx + 1} / {total_quizzes}")
             st.write(f"**問題:** {question}")
-            
+
+            # ラジオボタンキー (「何問目か(curr_idx)」に紐づける)
             radio_key = f"p2_quiz_radio_{curr_idx}"
             user_answer = st.radio(
                 "解答を選択してください:",
@@ -653,7 +733,7 @@ with tab6:
             )
 
             if not st.session_state.p2_quiz_answered:
-                # 回答ボタン
+                # 回答ボタン (「何問目か(curr_idx)」に紐づける)
                 if st.button("回答を確定", key=f"p2_quiz_submit_{curr_idx}"):
                     if user_answer is None:
                         st.warning("解答を選択してください。")
@@ -661,12 +741,12 @@ with tab6:
                         st.session_state.p2_quiz_answered = True
                         if user_answer == correct_answer:
                             st.session_state.p2_quiz_score += 1
-                        st.session_state.p2_quiz_idx += 1
-                        st.session_state.p2_quiz_answered = False
-                        st.rerun()        
+                            st.success(f"正解！ 🎉 正解は「{correct_answer}」です。")
+                    st.session_state.p2_quiz_idx += 1
+                    st.session_state.p2_quiz_answered = False # 次の問題のためにリセット
+                    st.rerun() # 結果を表示するために reran
         else:
             # クイズ終了
-            st.balloons()
             st.success(f"クイズ終了！ お疲れ様でした。")
             st.metric(
                 label="最終スコア",
@@ -674,4 +754,7 @@ with tab6:
             )
             if st.button("もう一度挑戦する", key="p2_quiz_reset"):
                 st.session_state.p2_quiz_started = False
+                # (念のため) ランダム順序もリセット
+                st.session_state.p2_quiz_order = []
                 st.rerun()
+# ▲▲▲ 変更点: ここまで ▲▲▲
