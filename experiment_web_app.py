@@ -92,7 +92,7 @@ def ask_unknown_words_ui(quizes_and_images, max_count=20):
     st.write("知っている単語には 'はい'、知らない単語には 'いいえ' を選択してください。")
     
     # ラジオボタンを表示
-    for i, (question, answer, image) in enumerate(quizes_and_images):
+    for i, (question, answer, image, _, _, _) in enumerate(quizes_and_images):
         if i >= max_count:
             break
 
@@ -108,9 +108,10 @@ def ask_unknown_words_ui(quizes_and_images, max_count=20):
 
     # 回答状況をセッション状態から集計
     responses = []
-    for i in range(max_count):
+    for i in range(max_count): 
         if f"quiz_{i}" in st.session_state and st.session_state[f"quiz_{i}"] is not None:
             responses.append(st.session_state[f"quiz_{i}"])
+            print(st.session_state[f"quiz_{i}"])
     
     all_answered = len(responses) == max_count
 
@@ -128,10 +129,10 @@ def ask_unknown_words_ui(quizes_and_images, max_count=20):
             unknown_part2 = []
             mid_point = max_count // 2 # 表示したクイズの中間点
 
-            for i, (question, answer, image) in enumerate(quizes_and_images[:max_count]):
+            for i, (question, answer, image, dammy1, dammy2, dammy3) in enumerate(quizes_and_images[:max_count]):
                 if st.session_state[f"quiz_{i}"] == "いいえ":
                     # 変更: 元のインデックス i もタプルに含める
-                    quiz_data = (question, answer, image, i) 
+                    quiz_data = (question, answer, dammy1, dammy2, dammy3, image, i) 
                     if i < mid_point: # 前半グループ
                         unknown_part1.append(quiz_data)
                     else: # 後半グループ
@@ -145,15 +146,26 @@ def ask_unknown_words_ui(quizes_and_images, max_count=20):
     return [], [], False
 
 # --- メインUI ---
-tab1, tab2, tab3, tab4 = st.tabs(["クイズ選択", "画像処理", "パターン1 (Saliency)", "パターン2 (下部固定)"])
+# 146行目を変更
+# --- メインUI ---
+# ▼▼▼ 変更点: タブを6つに増やす ▼▼▼
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "クイズ選択", 
+    "画像処理", 
+    "パターン1 (Saliency)", 
+    "パターン2 (下部固定)",
+    "パターン1 クイズ", # 追加
+    "パターン2 クイズ"  # 追加
+])
+# ▲▲▲ 変更点: ここまで ▲▲▲
 
 with tab1:    
     max_quizzes = st.number_input(
         "最大クイズ数（前半と後半に均等に分割されます）", 
         min_value=2, # 最低2問（各1問）
         max_value=1000, 
-        value=20, 
-        step=2, # 2の倍数を推奨
+        value=80, 
+        step=1, 
         key="max_quizzes"
     )
 
@@ -170,6 +182,11 @@ with tab1:
         st.session_state.quiz_selection_done = False
         st.session_state.processed_images_p1 = [] # 処理済みもリセット
         st.session_state.processed_images_p2 = [] # 処理済みもリセット
+
+        st.session_state.p1_quiz_started = False
+        st.session_state.p2_quiz_started = False
+        st.session_state.p1_quiz_idx = 0
+        st.session_state.p2_quiz_idx = 0
         
         max_to_reset = max(50, st.session_state.max_quizzes_on_start) 
         for i in range(max_to_reset): 
@@ -264,7 +281,7 @@ with tab2:
                 try:
                     # タブ3で出題されなかった問題 (part1 の NUM_TO_OPTIMIZE 以降)
                     # quiz_data[3] は元のインデックス
-                    unpresented_p1_indices = [quiz_data[3] for quiz_data in quizes_p1[total_p1:]]
+                    unpresented_p1_indices = [quiz_data[6] for quiz_data in quizes_p1[total_p1:]]
                     if unpresented_p1_indices:
                         print("\n--- [タブ3]で出題されなかった問題の番号 (元のインデックス) ---")
                         print(unpresented_p1_indices + 1)
@@ -275,7 +292,7 @@ with tab2:
 
                     # タブ4で出題されなかった問題 (part2 の NUM_TO_OPTIMIZE 以降)
                     # quiz_data[3] は元のインデックス
-                    unpresented_p2_indices = [quiz_data[3] for quiz_data in quizes_p2[total_p2:]]
+                    unpresented_p2_indices = [quiz_data[6] for quiz_data in quizes_p2[total_p2:]]
                     if unpresented_p2_indices:
                         print("\n--- [タブ4]で出題されなかった問題の番号 (元のインデックス) ---")
                         print(unpresented_p2_indices + 1)
@@ -297,8 +314,29 @@ with tab2:
                         progress_bar.progress((i + 1) / total_p1)
                         
                         # 変更: original_index をアンパック
-                        question, answer, generated_image, original_index = quizes_p1[i]
-                        image_copy = generated_image.copy()
+                        question, answer, dammy1, dammy2, dammy3, generated_image, original_index = quizes_p1[i]
+                        try:
+                            # image_data が PIL.Image オブジェクトかチェック
+                            if isinstance(generated_image, Image.Image):
+                                generated_image_pil = generated_image
+                            # image_data が string (パスの可能性) かチェック
+                            elif isinstance(generated_image, str):
+                                # 文字列の場合は画像パスとして開く
+                                if not os.path.exists(generated_image):
+                                    st.error(f"P1: 画像パスが見つかりません: {generated_image} [Index: {original_index}]")
+                                    continue # このクイズをスキップ
+                                generated_image_pil = Image.open(generated_image)
+                            else:
+                                # 予期しない型
+                                st.error(f"P1: 予期しない画像データ型: {type(generated_image)} [Index: {original_index}]")
+                                continue # スキップ
+                                
+                            # PILオブジェクトのコピーを作成
+                            image_copy = generated_image_pil.copy()
+
+                        except Exception as e:
+                            st.error(f"P1: 画像 {i+1} ('{answer}') [Index: {original_index}] の読み込み/コピー中にエラー: {e}")
+                            continue # スキップ
                         
                         try:
                             x, y = find_optimal_text_position(
@@ -316,11 +354,15 @@ with tab2:
                             st.session_state.processed_images_p1.append({
                                 'question': question,
                                 'answer': answer,
-                                'original_image': generated_image,
+                                'dammy1': dammy1, # 追加
+                                'dammy2': dammy2, # 追加
+                                'dammy3': dammy3, # 追加
+                                'original_image': generated_image_pil, # 修正: PILオブジェクト
                                 'processed_image': image_with_caption,
                                 'position': (x, y),
-                                'original_index': original_index # 念のため保存
+                                'original_index': original_index
                             })
+                            # ▲▲▲ 変更: ここまで ▲▲▲
                         except Exception as e:
                             st.error(f"パターン1の画像 {i+1} ('{answer}') [Index: {original_index}] の処理中にエラーが発生しました: {e}")
 
@@ -334,8 +376,24 @@ with tab2:
                         progress_bar.progress((i + 1) / total_p2)
                         
                         # 変更: original_index をアンパック
-                        question, answer, generated_image, original_index = quizes_p2[i]
-                        image_copy = generated_image.copy()
+                        question, answer, dammy1, dammy2, dammy3, generated_image, original_index = quizes_p2[i]
+                        try:
+                            if isinstance(generated_image, Image.Image):
+                                generated_image_pil = generated_image
+                            elif isinstance(generated_image, str):
+                                if not os.path.exists(generated_image):
+                                    st.error(f"P2: 画像パスが見つかりません: {generated_image} [Index: {original_index}]")
+                                    continue
+                                generated_image_pil = Image.open(generated_image)
+                            else:
+                                st.error(f"P2: 予期しない画像データ型: {type(generated_image)} [Index: {original_index}]")
+                                continue
+                                
+                            image_copy = generated_image_pil.copy()
+
+                        except Exception as e:
+                            st.error(f"P2: 画像 {i+1} ('{answer}') [Index: {original_index}] の読み込み/コピー中にエラー: {e}")
+                            continue
                         
                         try:
                             image_with_caption = find_lower_text_position_and_draw(
@@ -347,10 +405,13 @@ with tab2:
                             st.session_state.processed_images_p2.append({
                                 'question': question,
                                 'answer': answer,
-                                'original_image': generated_image,
+                                'dammy1': dammy1, # 追加
+                                'dammy2': dammy2, # 追加
+                                'dammy3': dammy3, # 追加
+                                'original_image': generated_image_pil, # 修正: PILオブジェクト
                                 'processed_image': image_with_caption,
                                 'position': (x, y),
-                                'original_index': original_index # 念のため保存
+                                'original_index': original_index
                             })
                         except Exception as e:
                             st.error(f"パターン2の画像 {i+1} ('{answer}') [Index: {original_index}] の処理中にエラーが発生しました: {e}")
@@ -441,4 +502,176 @@ with tab4:
                 # 変更: idx は 0 に戻る
                 st.session_state.pattern2_idx = 0 
                 st.session_state.pattern2_started = False
+                st.rerun()
+
+# ▼▼▼ 変更点: タブ5を追加 ▼▼▼
+with tab5:
+    # クイズ用のセッション状態初期化
+    if 'p1_quiz_started' not in st.session_state:
+        st.session_state.p1_quiz_started = False
+    if 'p1_quiz_idx' not in st.session_state:
+        st.session_state.p1_quiz_idx = 0
+    if 'p1_quiz_score' not in st.session_state:
+        st.session_state.p1_quiz_score = 0
+    if 'p1_quiz_answered' not in st.session_state:
+        # 現在の問題に回答済みかどうかのフラグ
+        st.session_state.p1_quiz_answered = False 
+    
+    quiz_data = st.session_state.processed_images_p1
+    total_quizzes = len(quiz_data)
+
+    if not quiz_data:
+        st.info("「画像処理」タブでパターン1の画像を処理してください。")
+    elif not st.session_state.p1_quiz_started:
+        st.info(f"パターン1で学習した {total_quizzes} 問のクイズを開始します。")
+        if st.button("クイズ開始", key="p1_quiz_start"):
+            # 状態をリセットして開始
+            st.session_state.p1_quiz_started = True
+            st.session_state.p1_quiz_idx = 0
+            st.session_state.p1_quiz_score = 0
+            st.session_state.p1_quiz_answered = False
+            # 過去の回答をクリア
+            for i in range(total_quizzes):
+                if f"p1_quiz_radio_{i}" in st.session_state:
+                    del st.session_state[f"p1_quiz_radio_{i}"]
+                if f"p1_quiz_options_{i}" in st.session_state:
+                    del st.session_state[f"p1_quiz_options_{i}"]
+            st.rerun()
+    else:
+        curr_idx = st.session_state.p1_quiz_idx
+        
+        if curr_idx < total_quizzes:
+            item = quiz_data[curr_idx]
+            question = item['question']
+            correct_answer = item['answer']
+            
+            # 選択肢をシャッフル (セッションに保存してシャッフルが固定されるようにする)
+            options_key = f"p1_quiz_options_{curr_idx}"
+            if options_key not in st.session_state:
+                options = [correct_answer, item['dammy1'], item['dammy2'], item['dammy3']]
+                random.shuffle(options)
+                st.session_state[options_key] = options
+            else:
+                options = st.session_state[options_key]
+
+            st.subheader(f"問題 {curr_idx + 1} / {total_quizzes}")
+            st.write(f"**問題:** {question}")
+            
+            radio_key = f"p1_quiz_radio_{curr_idx}"
+            user_answer = st.radio(
+                "解答を選択してください:",
+                options,
+                key=radio_key,
+                index=None,
+                disabled=st.session_state.p1_quiz_answered # 回答済みなら無効化
+            )
+
+            if not st.session_state.p1_quiz_answered:
+                # 回答ボタン
+                if st.button("回答を確定", key=f"p1_quiz_submit_{curr_idx}"):
+                    if user_answer is None:
+                        st.warning("解答を選択してください。")
+                    else:
+                        st.session_state.p1_quiz_answered = True
+                        if user_answer == correct_answer:
+                            st.session_state.p1_quiz_score += 1
+                        st.session_state.p1_quiz_idx += 1
+                        st.session_state.p1_quiz_answered = False
+                        st.rerun() 
+        else:
+            # クイズ終了
+            st.balloons()
+            st.success(f"クイズ終了！ お疲れ様でした。")
+            st.metric(
+                label="最終スコア",
+                value=f"{st.session_state.p1_quiz_score} / {total_quizzes}",
+            )
+            if st.button("もう一度挑戦する", key="p1_quiz_reset"):
+                st.session_state.p1_quiz_started = False
+                st.rerun()
+
+
+with tab6:
+    # クイズ用のセッション状態初期化
+    if 'p2_quiz_started' not in st.session_state:
+        st.session_state.p2_quiz_started = False
+    if 'p2_quiz_idx' not in st.session_state:
+        st.session_state.p2_quiz_idx = 0
+    if 'p2_quiz_score' not in st.session_state:
+        st.session_state.p2_quiz_score = 0
+    if 'p2_quiz_answered' not in st.session_state:
+        # 現在の問題に回答済みかどうかのフラグ
+        st.session_state.p2_quiz_answered = False 
+    
+    quiz_data = st.session_state.processed_images_p2
+    total_quizzes = len(quiz_data)
+
+    if not quiz_data:
+        st.info("「画像処理」タブでパターン2の画像を処理してください。")
+    elif not st.session_state.p2_quiz_started:
+        st.info(f"パターン2で学習した {total_quizzes} 問のクイズを開始します。")
+        if st.button("クイズ開始", key="p2_quiz_start"):
+            # 状態をリセットして開始
+            st.session_state.p2_quiz_started = True
+            st.session_state.p2_quiz_idx = 0
+            st.session_state.p2_quiz_score = 0
+            st.session_state.p2_quiz_answered = False
+            # 過去の回答をクリア
+            for i in range(total_quizzes):
+                if f"p2_quiz_radio_{i}" in st.session_state:
+                    del st.session_state[f"p2_quiz_radio_{i}"]
+                if f"p2_quiz_options_{i}" in st.session_state:
+                    del st.session_state[f"p2_quiz_options_{i}"]
+            st.rerun()
+    else:
+        curr_idx = st.session_state.p2_quiz_idx
+        
+        if curr_idx < total_quizzes:
+            item = quiz_data[curr_idx]
+            question = item['question']
+            correct_answer = item['answer']
+            
+            # 選択肢をシャッフル (セッションに保存してシャッフルが固定されるようにする)
+            options_key = f"p2_quiz_options_{curr_idx}"
+            if options_key not in st.session_state:
+                options = [correct_answer, item['dammy1'], item['dammy2'], item['dammy3']]
+                random.shuffle(options)
+                st.session_state[options_key] = options
+            else:
+                options = st.session_state[options_key]
+
+            st.subheader(f"問題 {curr_idx + 1} / {total_quizzes}")
+            st.write(f"**問題:** {question}")
+            
+            radio_key = f"p2_quiz_radio_{curr_idx}"
+            user_answer = st.radio(
+                "解答を選択してください:",
+                options,
+                key=radio_key,
+                index=None,
+                disabled=st.session_state.p2_quiz_answered # 回答済みなら無効化
+            )
+
+            if not st.session_state.p2_quiz_answered:
+                # 回答ボタン
+                if st.button("回答を確定", key=f"p2_quiz_submit_{curr_idx}"):
+                    if user_answer is None:
+                        st.warning("解答を選択してください。")
+                    else:
+                        st.session_state.p2_quiz_answered = True
+                        if user_answer == correct_answer:
+                            st.session_state.p2_quiz_score += 1
+                        st.session_state.p2_quiz_idx += 1
+                        st.session_state.p2_quiz_answered = False
+                        st.rerun()        
+        else:
+            # クイズ終了
+            st.balloons()
+            st.success(f"クイズ終了！ お疲れ様でした。")
+            st.metric(
+                label="最終スコア",
+                value=f"{st.session_state.p2_quiz_score} / {total_quizzes}",
+            )
+            if st.button("もう一度挑戦する", key="p2_quiz_reset"):
+                st.session_state.p2_quiz_started = False
                 st.rerun()
