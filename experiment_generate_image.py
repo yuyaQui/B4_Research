@@ -4,7 +4,7 @@ from io import BytesIO
 import os
 import csv
 
-def generate_image_from_quiz(question: str, answer: str) -> Image.Image:
+def generate_image_from_quiz(question: str, answer: str) -> Image.Image :
     try:
         client = genai.Client()
 
@@ -38,7 +38,7 @@ def generate_image_from_quiz(question: str, answer: str) -> Image.Image:
             """
         )
         print("\n画像を生成中です...しばらくお待ちください。")
-
+ 
         response = client.models.generate_content(
             model="gemini-2.5-flash-image",
             contents=[prompt],
