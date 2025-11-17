@@ -3,6 +3,7 @@ import pickle
 import random
 import torch
 import streamlit as st
+import time
 from PIL import Image
 import pyttsx3
 # TranSalNet_Dense, experiment_preprocess, experiment_image_draw は
@@ -18,7 +19,7 @@ READING_SPEED = 150
 # --- セッション状態の初期化 ---
 if 'experiment_set' not in st.session_state:
     try:
-        with open(os.path.join(DATASETS_PATH, "quizes_and_images.pkl"), "rb") as f:
+        with open(os.path.join(DATASETS_PATH, "sample_quizes_and_images.pkl"), "rb") as f:
             st.session_state.experiment_set = pickle.load(f)
             
             # --- ▼ ターミナル出力（読み込みクイズ総数） ▼ ---
@@ -111,7 +112,6 @@ def ask_unknown_words_ui(quizes_and_images, max_count=20):
     for i in range(max_count): 
         if f"quiz_{i}" in st.session_state and st.session_state[f"quiz_{i}"] is not None:
             responses.append(st.session_state[f"quiz_{i}"])
-            print(st.session_state[f"quiz_{i}"])
     
     all_answered = len(responses) == max_count
 
@@ -176,8 +176,6 @@ with tab1:
         key="quiz_order_radio", # セッション状態に保存されるキー
         horizontal=True,
         index=0, # デフォルトは "1"
-        help="1: 前半グループを「パターン1 (Saliency)」に、後半グループを「パターン2 (下部固定)」に割り当てます。\n\n"
-             "2: 前半グループを「パターン2 (下部固定)」に、後半グループを「パターン1 (Saliency)」に割り当てます（入れ替え）。"
     )
     # ▲▲▲ 変更点: ここまで ▲▲▲
 
@@ -467,7 +465,12 @@ with tab3:
         st.session_state.pattern1_started = False
     if 'pattern1_idx' not in st.session_state:
         st.session_state.pattern1_idx = 0
-
+    if 'start_time_1' not in st.session_state:
+        st.session_state.start_time_1 = 0
+    if 'end_time_1' not in st.session_state:
+        st.session_state.end_time_1 = 0
+    if 'p1_study_time_logged' not in st.session_state:
+        st.session_state.p1_study_time_logged = False
     # 変更: processed_images_p1 をチェック
     if not st.session_state.processed_images_p1:
         st.info("「画像処理」タブでパターン1の画像を処理してください。")
@@ -476,6 +479,10 @@ with tab3:
             idx_start = 0
             st.session_state.pattern1_idx = idx_start
             st.session_state.pattern1_started = True
+            st.session_state.start_time_1 = time.time()
+
+            st.session_state.p1_study_time_logged = False
+            st.session_state.end_time_1 = 0
             st.rerun()
     else:
         curr_idx = st.session_state.pattern1_idx
@@ -489,14 +496,22 @@ with tab3:
             # 変更: processed_images_p1 から取得
             item = st.session_state.processed_images_p1[curr_idx]
             st.image(item['processed_image'], use_container_width=True)
-            # read_text(item['question'])
-            # read_text(item['answer'])
+            read_text(item['question'])
+            read_text(item['answer'])
 
         else:
             st.info("すべての問題を表示し終えました。")
+            if not st.session_state.p1_study_time_logged:
+                st.session_state.end_time_1 = time.time()
+                study_time = st.session_state.end_time_1 - st.session_state.start_time_1
+                print(f"\n--- [タブ3] パターン1 学習時間: {study_time:.2f} s ---")
+                st.session_state.p1_study_time_logged = True # 記録済みにする
             if st.button("最初からやり直す", key="pattern1_reset"):
                 st.session_state.pattern1_idx = 0
                 st.session_state.pattern1_started = False
+                st.session_state.start_time_1 = 0
+                st.session_state.end_time_1 = 0
+                st.session_state.p1_study_time_logged = False
                 st.rerun()
 
 with tab4:
@@ -504,6 +519,12 @@ with tab4:
         st.session_state.pattern2_started = False
     if 'pattern2_idx' not in st.session_state:
         st.session_state.pattern2_idx = 0
+    if 'start_time_2' not in st.session_state:
+        st.session_state.start_time_2 = 0
+    if 'end_time_2' not in st.session_state:
+        st.session_state.end_time_2 = 0
+    if 'p2_study_time_logged' not in st.session_state:
+        st.session_state.p2_study_time_logged = False
 
     # 変更: processed_images_p2 をチェック
     if not st.session_state.processed_images_p2:
@@ -523,6 +544,9 @@ with tab4:
             
             st.session_state.pattern2_idx = idx_start
             st.session_state.pattern2_started = True
+            st.session_state.start_time_2 = time.time()
+            st.session_state.p2_study_time_logged = False
+            st.session_state.end_time_2 = 0
             st.rerun()
     else:
         curr_idx = st.session_state.pattern2_idx
@@ -535,14 +559,22 @@ with tab4:
             # 変更: processed_images_p2 から取得
             item = st.session_state.processed_images_p2[curr_idx]
             st.image(item['processed_image'], use_container_width=True)
-            # read_text(item['question'])
-            # read_text(item['answer'])
+            read_text(item['question'])
+            read_text(item['answer'])
         else:
             st.info("すべての問題を表示し終えました。")
+            if not st.session_state.p2_study_time_logged:
+                st.session_state.end_time_2 = time.time()
+                study_time = st.session_state.end_time_2 - st.session_state.start_time_2
+                print(f"\n--- [タブ4] パターン2 学習時間: {study_time:.2f} s ---") 
+                st.session_state.p2_study_time_logged = True
             if st.button("最初からやり直す", key="pattern2_reset"):
                 # 変更: idx は 0 に戻る
                 st.session_state.pattern2_idx = 0 
                 st.session_state.pattern2_started = False
+                st.session_state.start_time_2 = 0
+                st.session_state.end_time_2 = 0
+                st.session_state.p2_study_time_logged = False
                 st.rerun()
 
 # (tab1, tab2, tab3, tab4 のコードは省略)

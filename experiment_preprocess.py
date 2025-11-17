@@ -19,7 +19,7 @@ if __name__ == "__main__":
             quizes_and_images.append((question, answer, image, dammy1, dammy2, dammy3))
 
     # quizes_and_images を保存する処理を追加
-    with open(os.path.join(DATASETS_PATH, "quizes_and_images.pkl"), "wb") as f:
+    with open(os.path.join(DATASETS_PATH, "sample_quizes_and_images.pkl"), "wb") as f:
         pickle.dump(quizes_and_images, f)
 
     print(f"全 {len(quizes_and_images)} 問のクイズについて画像を生成しました")

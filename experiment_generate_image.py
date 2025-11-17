@@ -4,7 +4,7 @@ from io import BytesIO
 import os
 import csv
 
-def generate_image_from_quiz(question: str, answer: str) -> Image.Image :
+def generate_image_from_quiz(question: str, answer: str):
     try:
         client = genai.Client()
 
@@ -57,15 +57,18 @@ def generate_image_from_quiz(question: str, answer: str) -> Image.Image :
             # ループが終了しても画像が見つからなかった場合
             if not image_found:
                 print("❌ 応答に画像データが含まれていませんでした。")
+                print("もう一度生成を行います")
                 # テキスト応答があれば表示する（デバッグ用）
                 if response.candidates[0].content.parts and response.candidates[0].content.parts[0].text:
                     print(f"モデルのテキスト応答: {response.candidates[0].content.parts[0].text}")
-                return None
+                return generate_image_from_quiz(question, answer)
         else:
             # response自体が無効だった場合
             print("❌ モデルから有効な応答が得られませんでした。")
-            return None
+            print("もう一度生成を行います")
+            return generate_image_from_quiz(question, answer)
 
     except Exception as e:
         print(f"エラーが発生しました: {e}")
-        return None
+        print("もう一度生成を行います")
+        return generate_image_from_quiz(question, answer)
