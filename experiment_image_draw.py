@@ -1,3 +1,4 @@
+import cv2
 import numpy as np
 import torch
 from PIL import ImageDraw, ImageFont
