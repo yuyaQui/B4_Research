@@ -152,10 +152,10 @@ def ask_unknown_words_ui(quizes_and_images, max_count=20):
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "クイズ選択", 
     "画像処理", 
-    "パターン1 (Saliency)", 
-    "パターン2 (下部固定)",
-    "パターン1 クイズ", # 追加
-    "パターン2 クイズ"  # 追加
+    "条件A（学習）", 
+    "条件B（学習）",
+    "条件A（テスト）", # 追加
+    "条件B（テスト）"  # 追加
 ])
 # ▲▲▲ 変更点: ここまで ▲▲▲
 
@@ -407,11 +407,11 @@ with tab2:
 
                 # --- パターン2 (下部固定) の処理 ---
                 if total_p2 > 0:
-                    status_text.text(f"パターン2 (下部固定) 処理中: 0/{total_p2}")
+                    status_text.text(f"パターン2 処理中: 0/{total_p2}")
                     progress_bar.progress(0) # プログレスバーリセット
 
                     for i in range(total_p2):
-                        status_text.text(f"パターン2 (下部固定) 処理中: {i+1}/{total_p2}")
+                        status_text.text(f"パターン2 処理中: {i+1}/{total_p2}")
                         progress_bar.progress((i + 1) / total_p2)
                         
                         # 変更: original_index をアンパック
@@ -457,8 +457,8 @@ with tab2:
 
                 progress_bar.empty()
                 status_text.text("処理完了！")
-                st.success(f"パターン1 (Saliency): {len(st.session_state.processed_images_p1)}個, "
-                           f"パターン2 (下部固定): {len(st.session_state.processed_images_p2)}個 の画像を処理しました。")
+                st.success(f"パターン1: {len(st.session_state.processed_images_p1)}個, "
+                           f"パターン2: {len(st.session_state.processed_images_p2)}個 の画像を処理しました。")
 
 with tab3:
     if 'pattern1_started' not in st.session_state:
