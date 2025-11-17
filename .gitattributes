@@ -1,2 +1,1 @@
-experiment_datasets/sample_quizes_and_images.pkl filter=lfs diff=lfs merge=lfs -text
 experiment_datasets/*.pkl filter=lfs diff=lfs merge=lfs -text
