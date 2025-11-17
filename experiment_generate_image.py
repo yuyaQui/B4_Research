@@ -4,11 +4,7 @@ from io import BytesIO
 import os
 import csv
 
-<<<<<<< HEAD
-def generate_image_from_quiz(question: str, answer: str):
-=======
 def generate_image_from_quiz(question: str, answer: str) -> Image.Image:
->>>>>>> parent of cb0b839 (modify the output of the function 'generated_image_from_quiz')
     try:
         client = genai.Client()
 

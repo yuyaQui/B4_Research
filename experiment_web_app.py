@@ -789,4 +789,3 @@ with tab6:
                 # (念のため) ランダム順序もリセット
                 st.session_state.p2_quiz_order = []
                 st.rerun()
-# ▲▲▲ 変更点: ここまで ▲▲▲
