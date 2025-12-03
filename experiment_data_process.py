@@ -104,8 +104,3 @@ class MyDataset(Dataset):
         sample = {'image': img, 'saliency': smap, 'fixation': fmap}
 
         return sample
-
-
-
-
-

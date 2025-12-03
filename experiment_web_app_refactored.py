@@ -139,12 +139,12 @@ def ask_unknown_words_ui(quizes_and_images, max_count=20):
     st.write("知っている単語には 'はい'、知らない単語には 'いいえ' を選択してください。")
     
     # ラジオボタンを表示
-    for i, (question, answer, image, _, _, _) in enumerate(quizes_and_images):
+    for i, (question_1, target, image, question_2, answer, _, _) in enumerate(quizes_and_images):
         if i >= max_count:
             break
         
         with st.container():
-            st.write(f"**{i+1}. '{answer}'**")
+            st.write(f"**{i+1}. '{target}'**")
             st.radio(
                 "知っていますか？",
                 ["はい", "いいえ"],
@@ -174,9 +174,9 @@ def ask_unknown_words_ui(quizes_and_images, max_count=20):
             unknown_part2 = []
             mid_point = max_count // 2
             
-            for i, (question, answer, image, dammy1, dammy2, dammy3) in enumerate(quizes_and_images[:max_count]):
+            for i, (question_1, target, image, question_2, answer, dammy1, dammy2, dammy3) in enumerate(quizes_and_images[:max_count]):
                 if st.session_state[f"quiz_{i}"] == "いいえ":
-                    quiz_data = (question, answer, dammy1, dammy2, dammy3, image, i)
+                    quiz_data = (question_1, target, image, question_2, answer, dammy1, dammy2, dammy3, i)
                     if i < mid_point:
                         unknown_part1.append(quiz_data)
                     else:
@@ -284,19 +284,19 @@ def run_gaze_tracker(stop_event, result_container):
 # ============================================================================
 def process_image_pattern1(quiz_data, index):
     """パターン1（Saliency）の画像処理"""
-    question, answer, dammy1, dammy2, dammy3, generated_image, original_index = quiz_data
+    question_1, target, image, question_2, answer, dammy1, dammy2, dammy3, original_index = quiz_data
     
     try:
         # 画像の読み込み
-        if isinstance(generated_image, Image.Image):
-            generated_image_pil = generated_image
-        elif isinstance(generated_image, str):
-            if not os.path.exists(generated_image):
-                st.error(f"P1: 画像パスが見つかりません: {generated_image} [Index: {original_index}]")
+        if isinstance(image, Image.Image):
+            generated_image_pil = image
+        elif isinstance(image, str):
+            if not os.path.exists(image):
+                st.error(f"P1: 画像パスが見つかりません: {image} [Index: {original_index}]")
                 return None
-            generated_image_pil = Image.open(generated_image)
+            generated_image_pil = Image.open(image)
         else:
-            st.error(f"P1: 予期しない画像データ型: {type(generated_image)} [Index: {original_index}]")
+            st.error(f"P1: 予期しない画像データ型: {type(image)} [Index: {original_index}]")
             return None
         
         image_copy = generated_image_pil.copy()
@@ -310,7 +310,9 @@ def process_image_pattern1(quiz_data, index):
         image_with_caption = draw_answer_text_on_image(image_copy, answer, x, y)
         
         return {
-            'question': question,
+            'question_1': question_1,
+            'target': target,
+            'question_2': question_2,
             'answer': answer,
             'dammy1': dammy1,
             'dammy2': dammy2,
@@ -328,19 +330,19 @@ def process_image_pattern1(quiz_data, index):
 
 def process_image_pattern2(quiz_data, index):
     """パターン2（下部固定）の画像処理"""
-    question, answer, dammy1, dammy2, dammy3, generated_image, original_index = quiz_data
+    question_1, target, image, question_2, answer, dammy1, dammy2, dammy3, original_index = quiz_data
     
     try:
         # 画像の読み込み
-        if isinstance(generated_image, Image.Image):
-            generated_image_pil = generated_image
-        elif isinstance(generated_image, str):
-            if not os.path.exists(generated_image):
-                st.error(f"P2: 画像パスが見つかりません: {generated_image} [Index: {original_index}]")
+        if isinstance(image, Image.Image):
+            generated_image_pil = image
+        elif isinstance(image, str):
+            if not os.path.exists(image):
+                st.error(f"P2: 画像パスが見つかりません: {image} [Index: {original_index}]")
                 return None
-            generated_image_pil = Image.open(generated_image)
+            generated_image_pil = Image.open(image)
         else:
-            st.error(f"P2: 予期しない画像データ型: {type(generated_image)} [Index: {original_index}]")
+            st.error(f"P2: 予期しない画像データ型: {type(image)} [Index: {original_index}]")
             return None
         
         image_copy = generated_image_pil.copy()
@@ -351,7 +353,9 @@ def process_image_pattern2(quiz_data, index):
         x, y = img_width // 2, img_height // 2
         
         return {
-            'question': question,
+            'question_1': question_1,
+            'target': target,
+            'question_2': question_2,
             'answer': answer,
             'dammy1': dammy1,
             'dammy2': dammy2,
@@ -429,6 +433,10 @@ def render_tab1_quiz_selection():
         st.rerun()
     
     if st.session_state.quiz_started and not st.session_state.quiz_selection_done:
+        # ask_unknown_words_ui の戻り値:
+        # - unknown_p1: 前半グループの未知語リスト [(question_1, target, image, question_2, answer, dammy1, dammy2, dammy3, original_index), ...]
+        # - unknown_p2: 後半グループの未知語リスト [(question_1, target, image, question_2, answer, dammy1, dammy2, dammy3, original_index), ...]
+        # - completed: 選択が完了したかどうか (True/False)
         unknown_p1, unknown_p2, completed = ask_unknown_words_ui(
             st.session_state.experiment_set,
             max_count=st.session_state.max_quizzes_on_start
@@ -499,9 +507,13 @@ def render_tab2_image_processing():
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 
+                # quizes_p1: パターン1（Saliency方式）で処理する未知語のリスト
+                # 各要素は (question_1, target, image, question_2, answer, dammy1, dammy2, dammy3, original_index) のタプル
                 quizes_p1 = st.session_state.unknown_quizes_part1
                 total_p1 = min(len(quizes_p1), NUM_TO_OPTIMIZE)
                 
+                # quizes_p2: パターン2（下部固定方式）で処理する未知語のリスト
+                # 各要素は (question_1, target, image, question_2, answer, dammy1, dammy2, dammy3, original_index) のタプル
                 quizes_p2 = st.session_state.unknown_quizes_part2
                 total_p2 = min(len(quizes_p2), NUM_TO_OPTIMIZE)
                 
