@@ -27,7 +27,7 @@ from experiment_image_draw import (
 # Constants
 # ============================================================================
 MODEL_PATH_DENSE = r'pretrained_models\TranSalNet_Dense.pth'
-SOURCE_PATH = "experiment_fixed_2"
+SOURCE_PATH = "furigana_sample"
 NUM_TO_OPTIMIZE = 25  # 各パターンで処理する最大数
 READING_SPEED = 120
 MOVEMENT_THRESHOLD = 1.0  # アイトラッキングの閾値
@@ -141,7 +141,7 @@ def ask_unknown_words_ui(quizes_and_images, max_count=20):
     st.write("知っている単語には 'はい'、知らない単語には 'いいえ' を選択してください。")
     
     # ラジオボタンを表示
-    for i, (question_1, target, image, question_2, answer, dammy1, dammy2, dammy3) in enumerate(quizes_and_images):
+    for i, (question_1, question_1_read, target, image, question_2, answer, dammy1, dammy2, dammy3) in enumerate(quizes_and_images):
         if i >= max_count:
             break
         
@@ -176,9 +176,9 @@ def ask_unknown_words_ui(quizes_and_images, max_count=20):
             unknown_part2 = []
             mid_point = max_count // 2
             
-            for i, (question_1, target, image, question_2, answer, dammy1, dammy2, dammy3) in enumerate(quizes_and_images[:max_count]):
+            for i, (question_1, question_1_read, target, image, question_2, answer, dammy1, dammy2, dammy3) in enumerate(quizes_and_images[:max_count]):
                 if st.session_state[f"quiz_{i}"] == "いいえ":
-                    quiz_data = (question_1, target, image, question_2, answer, dammy1, dammy2, dammy3, i)
+                    quiz_data = (question_1, question_1_read, target, image, question_2, answer, dammy1, dammy2, dammy3, i)
                     if i < mid_point:
                         unknown_part1.append(quiz_data)
                     else:
@@ -286,7 +286,7 @@ def run_gaze_tracker(stop_event, result_container):
 # ============================================================================
 def process_image_pattern1(quiz_data, index):
     """パターン1（Saliency）の画像処理"""
-    question_1, target, image, question_2, answer, dammy1, dammy2, dammy3, original_index = quiz_data
+    question_1, question_1_read, target, image, question_2, answer, dammy1, dammy2, dammy3, original_index = quiz_data
     
     try:
         # 画像の読み込み
@@ -313,6 +313,7 @@ def process_image_pattern1(quiz_data, index):
         
         return {
             'question_1': question_1,
+            'question_1_read': question_1_read,
             'target': target,
             'question_2': question_2,
             'answer': answer,
@@ -332,7 +333,7 @@ def process_image_pattern1(quiz_data, index):
 
 def process_image_pattern2(quiz_data, index):
     """パターン2（下部固定）の画像処理"""
-    question_1, target, image, question_2, answer, dammy1, dammy2, dammy3, original_index = quiz_data
+    question_1, question_1_read, target, image, question_2, answer, dammy1, dammy2, dammy3, original_index = quiz_data
     
     try:
         # 画像の読み込み
@@ -356,6 +357,7 @@ def process_image_pattern2(quiz_data, index):
         
         return {
             'question_1': question_1,
+            'question_1_read': question_1_read,
             'target': target,
             'question_2': question_2,
             'answer': answer,
@@ -436,8 +438,8 @@ def render_tab1_quiz_selection():
     
     if st.session_state.quiz_started and not st.session_state.quiz_selection_done:
         # ask_unknown_words_ui の戻り値:
-        # - unknown_p1: 前半グループの未知語リスト [(question_1, target, image, question_2, answer, dammy1, dammy2, dammy3, original_index), ...]
-        # - unknown_p2: 後半グループの未知語リスト [(question_1, target, image, question_2, answer, dammy1, dammy2, dammy3, original_index), ...]
+        # - unknown_p1: 前半グループの未知語リスト [(question_1, question_1_read, target, image, question_2, answer, dammy1, dammy2, dammy3, original_index), ...]
+        # - unknown_p2: 後半グループの未知語リスト [(question_1, question_1_read, target, image, question_2, answer, dammy1, dammy2, dammy3, original_index), ...]
         # - completed: 選択が完了したかどうか (True/False)
         unknown_p1, unknown_p2, completed = ask_unknown_words_ui(
             st.session_state.experiment_set,
@@ -510,12 +512,12 @@ def render_tab2_image_processing():
                 status_text = st.empty()
                 
                 # quizes_p1: パターン1（Saliency方式）で処理する未知語のリスト
-                # 各要素は (question_1, target, image, question_2, answer, dammy1, dammy2, dammy3, original_index) のタプル
+                # 各要素は (question_1, question_1_read, target, image, question_2, answer, dammy1, dammy2, dammy3, original_index) のタプル
                 quizes_p1 = st.session_state.unknown_quizes_part1
                 total_p1 = min(len(quizes_p1), NUM_TO_OPTIMIZE)
                 
                 # quizes_p2: パターン2（下部固定方式）で処理する未知語のリスト
-                # 各要素は (question_1, target, image, question_2, answer, dammy1, dammy2, dammy3, original_index) のタプル
+                # 各要素は (question_1, question_1_read, target, image, question_2, answer, dammy1, dammy2, dammy3, original_index) のタプル
                 quizes_p2 = st.session_state.unknown_quizes_part2
                 total_p2 = min(len(quizes_p2), NUM_TO_OPTIMIZE)
                 
@@ -616,6 +618,7 @@ def render_learning_tab(pattern_num, pattern_name, processed_images_key):
                 
                 # itemの中身（辞書）:
                 # - question_1: 質問文1
+                # - question_1_read: 質問文1の読み
                 # - target: ターゲット単語
                 # - question_2: 質問文2
                 # - answer: 正解
@@ -626,7 +629,7 @@ def render_learning_tab(pattern_num, pattern_name, processed_images_key):
                 # - original_index: 元のインデックス
                 item = processed_images[curr_idx]
                 st.image(item['processed_image'], use_container_width=True)
-                read_text(item['question_1'])
+                read_text(item['question_1_read'])
             else:
                 st.info("すべての問題を表示し終えました。")
                 
