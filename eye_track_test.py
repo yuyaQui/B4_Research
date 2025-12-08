@@ -55,6 +55,27 @@ def calculate_gaze_distance():
 
             if results.multi_face_landmarks:
                 for face_landmarks in results.multi_face_landmarks:
+                    # 瞬き検出 (Blink Detection)
+                    left_eye_top = face_landmarks.landmark[159]
+                    left_eye_bottom = face_landmarks.landmark[145]
+                    right_eye_top = face_landmarks.landmark[386]
+                    right_eye_bottom = face_landmarks.landmark[374]
+                    
+                    # 縦方向の距離（ピクセル換算）
+                    l_dist = abs(left_eye_top.y - left_eye_bottom.y) * height
+                    r_dist = abs(right_eye_top.y - right_eye_bottom.y) * height
+                    
+                    # 閾値以下なら瞬きとみなす
+                    BLINK_THRESHOLD = 5.5
+                    
+                    if l_dist < BLINK_THRESHOLD or r_dist < BLINK_THRESHOLD:
+                        # 瞬き中は前の位置情報をリセット
+                        prev_left_iris = None
+                        prev_right_iris = None
+                        cv2.putText(image, "Blink", (30, 80),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                        continue
+
                     # --- 虹彩（瞳）の中心座標を取得 ---
                     # 468: 左目の虹彩中心
                     # 473: 右目の虹彩中心

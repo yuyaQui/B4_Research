@@ -6,7 +6,7 @@ from experiment_generate_image import generate_image_from_quiz
 # クイズの最大数
 MAX_QUESTION_COUNT = 80
 DATASETS_PATH = "experiment_datasets"
-TARGET_PATH = "furigana_sample"
+TARGET_PATH = "experiment_furigana"
 
 if __name__ == "__main__":
     quizes = load_quizzes(os.path.join(DATASETS_PATH, f"{TARGET_PATH}.csv"))

@@ -27,7 +27,7 @@ from experiment_image_draw import (
 # Constants
 # ============================================================================
 MODEL_PATH_DENSE = r'pretrained_models\TranSalNet_Dense.pth'
-SOURCE_PATH = "furigana_sample"
+SOURCE_PATH = "experiment_furigana"
 NUM_TO_OPTIMIZE = 25  # 各パターンで処理する最大数
 READING_SPEED = 120
 MOVEMENT_THRESHOLD = 1.0  # アイトラッキングの閾値
@@ -245,26 +245,59 @@ def run_gaze_tracker(stop_event, result_container):
             
             if results.multi_face_landmarks:
                 for face_landmarks in results.multi_face_landmarks:
-                    l_pt = face_landmarks.landmark[468]
-                    r_pt = face_landmarks.landmark[473]
+                    # 瞬き検出 (Blink Detection)
+                    left_eye_top = face_landmarks.landmark[159]
+                    left_eye_bottom = face_landmarks.landmark[145]
+                    right_eye_top = face_landmarks.landmark[386]
+                    right_eye_bottom = face_landmarks.landmark[374]
                     
-                    curr_left_iris = np.array([l_pt.x * width, l_pt.y * height])
-                    curr_right_iris = np.array([r_pt.x * width, r_pt.y * height])
+                    # 縦方向の距離（ピクセル換算）
+                    l_dist = abs(left_eye_top.y - left_eye_bottom.y) * height
+                    r_dist = abs(right_eye_top.y - right_eye_bottom.y) * height
                     
-                    # 描画
-                    cv2.circle(image, (int(curr_left_iris[0]), int(curr_left_iris[1])), 3, (0, 255, 0), -1)
-                    cv2.circle(image, (int(curr_right_iris[0]), int(curr_right_iris[1])), 3, (0, 255, 0), -1)
+                    # 閾値以下なら瞬きとみなす
+                    BLINK_THRESHOLD = 5.5
                     
-                    if prev_left_iris is not None and prev_right_iris is not None:
-                        dist_l = np.linalg.norm(curr_left_iris - prev_left_iris)
-                        dist_r = np.linalg.norm(curr_right_iris - prev_right_iris)
-                        avg_dist = (dist_l + dist_r) / 2.0
+                    if l_dist < BLINK_THRESHOLD or r_dist < BLINK_THRESHOLD:
+                        # 瞬き中は前の位置情報をリセット（再開時に距離が加算されないようにする）
+                        prev_left_iris = None
+                        prev_right_iris = None
                         
-                        if avg_dist > MOVEMENT_THRESHOLD:
-                            total_distance += avg_dist
-                    
-                    prev_left_iris = curr_left_iris
-                    prev_right_iris = curr_right_iris
+                        cv2.putText(image, "Blink", (30, 80),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                        # 瞬き時は処理をスキップ（continueするとループの先頭に戻るが、
+                        # ここはforループ内なので、次のface_landmarksへ... 
+                        # しかしmax_num_faces=1なので実質次のフレームへ）
+                        # ただし、描画更新のためにcontinueせず、iris計算だけスキップする形にするか、
+                        # あるいはここでcontinueして、imshowはループ外にあるので...
+                        # あ、imshowはwhileループの最後にある。
+                        # ここでcontinueすると、imshowが呼ばれずに次のcap.read()に行ってしまう？
+                        # いや、forループのcontinueなので、multi_face_landmarksの次の要素へ行くだけ。
+                        # max_num_faces=1ならループを抜ける。
+                        # その後、imshowの行に行く。
+                        # なので、iris計算をスキップするだけでよい。
+                        pass
+                    else:
+                        l_pt = face_landmarks.landmark[468]
+                        r_pt = face_landmarks.landmark[473]
+                        
+                        curr_left_iris = np.array([l_pt.x * width, l_pt.y * height])
+                        curr_right_iris = np.array([r_pt.x * width, r_pt.y * height])
+                        
+                        # 描画
+                        cv2.circle(image, (int(curr_left_iris[0]), int(curr_left_iris[1])), 3, (0, 255, 0), -1)
+                        cv2.circle(image, (int(curr_right_iris[0]), int(curr_right_iris[1])), 3, (0, 255, 0), -1)
+                        
+                        if prev_left_iris is not None and prev_right_iris is not None:
+                            dist_l = np.linalg.norm(curr_left_iris - prev_left_iris)
+                            dist_r = np.linalg.norm(curr_right_iris - prev_right_iris)
+                            avg_dist = (dist_l + dist_r) / 2.0
+                            
+                            if avg_dist > MOVEMENT_THRESHOLD:
+                                total_distance += avg_dist
+                        
+                        prev_left_iris = curr_left_iris
+                        prev_right_iris = curr_right_iris
             
             # 結果をコンテナに書き込む
             result_container["distance"] = total_distance
@@ -612,9 +645,38 @@ def render_learning_tab(pattern_num, pattern_name, processed_images_key):
             curr_idx = st.session_state[f'{prefix}_idx']
             
             if curr_idx < len(processed_images):
-                if st.button("次の問題", key=f"{prefix}_next"):
+                # 次の問題に進むボタン
+                if st.button("次の問題へ", key=f"{prefix}_next"):
                     st.session_state[f'{prefix}_idx'] += 1
                     st.rerun()
+
+                # JavaScriptを埋め込んでEnterキーでボタンをクリックさせる
+                # 親ウィンドウ（メイン画面）にイベントリスナーを追加することで、どこにフォーカスがあっても反応するようにする
+                st.components.v1.html(
+                    f"""
+                    <script>
+                    const parentDoc = window.parent.document;
+                    if (!parentDoc.hasOwnProperty('_enter_listener_attached_{prefix}')) {{
+                        parentDoc.addEventListener('keydown', function(e) {{
+                            if (e.keyCode === 13) {{
+                                const buttons = parentDoc.getElementsByTagName('button');
+                                for (let i = 0; i < buttons.length; i++) {{
+                                    if (buttons[i].innerText.includes("次の問題へ")) {{
+                                        buttons[i].click();
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        break;
+                                    }}
+                                }}
+                            }}
+                        }});
+                        parentDoc['_enter_listener_attached_{prefix}'] = true;
+                    }}
+                    </script>
+                    """,
+                    height=0,
+                    width=0,
+                )
                 
                 # itemの中身（辞書）:
                 # - question_1: 質問文1

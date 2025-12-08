@@ -27,7 +27,7 @@ from experiment_image_draw import (
 # Constants
 # ============================================================================
 MODEL_PATH_DENSE = r'pretrained_models\TranSalNet_Dense.pth'
-SOURCE_PATH = "experiment_fixed_2"
+SOURCE_PATH = "sample_fixed"
 NUM_TO_OPTIMIZE = 25  # 各パターンで処理する最大数
 READING_SPEED = 120
 MOVEMENT_THRESHOLD = 1.0  # アイトラッキングの閾値
