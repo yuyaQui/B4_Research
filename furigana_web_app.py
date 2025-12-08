@@ -30,7 +30,8 @@ MODEL_PATH_DENSE = r'pretrained_models\TranSalNet_Dense.pth'
 SOURCE_PATH = "experiment_furigana"
 NUM_TO_OPTIMIZE = 25  # 各パターンで処理する最大数
 READING_SPEED = 120
-MOVEMENT_THRESHOLD = 1.0  # アイトラッキングの閾値
+MOVEMENT_THRESHOLD = 0.8  # アイトラッキングの閾値
+FACE_MOVE_THRESHOLD = 1.0  # 顔の動きを検知する閾値
 
 # ============================================================================
 # Session State Initialization
@@ -215,6 +216,7 @@ def run_gaze_tracker(stop_event, result_container):
     total_distance = 0.0
     prev_left_iris = None
     prev_right_iris = None
+    prev_head_pos = None
     camera_initialized = False
     
     # MediaPipe起動
@@ -245,6 +247,27 @@ def run_gaze_tracker(stop_event, result_container):
             
             if results.multi_face_landmarks:
                 for face_landmarks in results.multi_face_landmarks:
+                    # --- 顔の動き検出 ---
+                    # 鼻の頭 (Landmark 1) を取得
+                    nose_pt = face_landmarks.landmark[1]
+                    curr_head_pos = np.array([nose_pt.x * width, nose_pt.y * height])
+
+                    is_head_moving = False
+                    if prev_head_pos is not None:
+                        head_dist = np.linalg.norm(curr_head_pos - prev_head_pos)
+                        if head_dist > FACE_MOVE_THRESHOLD:
+                            is_head_moving = True
+                    
+                    prev_head_pos = curr_head_pos
+
+                    if is_head_moving:
+                        # 顔が動いている間はリセット
+                        prev_left_iris = None
+                        prev_right_iris = None
+                        cv2.putText(image, "Head Moving", (30, 80),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                        continue
+
                     # 瞬き検出 (Blink Detection)
                     left_eye_top = face_landmarks.landmark[159]
                     left_eye_bottom = face_landmarks.landmark[145]

@@ -6,8 +6,9 @@ import numpy as np
 def calculate_gaze_distance():
     # --- 設定 ---
     # ノイズ対策：これ以下の微細な動きは無視する閾値（ピクセル）
-    MOVEMENT_THRESHOLD = 1.0
-    
+    MOVEMENT_THRESHOLD = 0.8
+    # 顔の動きを検知する閾値
+    FACE_MOVE_THRESHOLD = 1.0    
     # MediaPipeの設定
     mp_face_mesh = mp.solutions.face_mesh
     
@@ -28,6 +29,7 @@ def calculate_gaze_distance():
     total_distance = 0.0
     prev_left_iris = None
     prev_right_iris = None
+    prev_head_pos = None
     
     print("計測を開始します。終了するには画面上で 'q' キーを押してください。")
 
@@ -73,6 +75,28 @@ def calculate_gaze_distance():
                         prev_left_iris = None
                         prev_right_iris = None
                         cv2.putText(image, "Blink", (30, 80),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                        continue
+
+
+                    # --- 顔の動き検出 ---
+                    # 鼻の頭 (Landmark 1) を取得
+                    nose_pt = face_landmarks.landmark[1]
+                    curr_head_pos = np.array([nose_pt.x * width, nose_pt.y * height])
+
+                    is_head_moving = False
+                    if prev_head_pos is not None:
+                        head_dist = np.linalg.norm(curr_head_pos - prev_head_pos)
+                        if head_dist > FACE_MOVE_THRESHOLD:
+                            is_head_moving = True
+                    
+                    prev_head_pos = curr_head_pos
+
+                    if is_head_moving:
+                        # 顔が動いている間はリセット
+                        prev_left_iris = None
+                        prev_right_iris = None
+                        cv2.putText(image, "Head Moving", (30, 80),
                                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
                         continue
 
