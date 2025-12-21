@@ -4,8 +4,8 @@ import random
 import torch
 from PIL import Image, ImageDraw, ImageFont
 from TranSalNet_Dense import TranSalNet
-from experiment_ask_unknown import ask_unknown_words
-from experiment_preprocess import DATASETS_PATH
+from nolonger.experiment_ask_unknown import ask_unknown_words
+from nolonger.experiment_preprocess import DATASETS_PATH
 from experiment_image_draw import find_optimal_text_position, draw_answer_text_on_image
 
 MODEL_PATH_DENSE = r'pretrained_models\TranSalNet_Dense.pth'

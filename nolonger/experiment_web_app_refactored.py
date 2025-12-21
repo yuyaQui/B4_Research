@@ -16,7 +16,7 @@ from PIL import Image
 import pyttsx3
 
 from TranSalNet_Dense import TranSalNet
-from experiment_preprocess import DATASETS_PATH
+from nolonger.experiment_preprocess import DATASETS_PATH
 from experiment_image_draw import (
     find_optimal_text_position,
     find_lower_text_position_and_draw,

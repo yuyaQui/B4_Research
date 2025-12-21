@@ -5,12 +5,11 @@ import os
 import pickle
 import random
 import time
-import threading
+# threading は削除
+# cv2, mediapipe は削除（アイトラッキング用だったため）
 
 import torch
 import streamlit as st
-import cv2
-import mediapipe as mp
 import numpy as np
 from PIL import Image
 import pyttsx3
@@ -27,11 +26,10 @@ from experiment_image_draw import (
 # Constants
 # ============================================================================
 MODEL_PATH_DENSE = r'pretrained_models\TranSalNet_Dense.pth'
-SOURCE_PATH = "experiment_furigana"
+SOURCE_PATH = "test_quiz"
 NUM_TO_OPTIMIZE = 25  # 各パターンで処理する最大数
 READING_SPEED = 120
-MOVEMENT_THRESHOLD = 0.8  # アイトラッキングの閾値
-FACE_MOVE_THRESHOLD = 1.0  # 顔の動きを検知する閾値
+# アイトラッキング用の閾値定数は削除
 
 # ============================================================================
 # Session State Initialization
@@ -76,16 +74,31 @@ initialize_session_state()
 # Utility Functions
 # ============================================================================
 def read_text(text: str):
-    """テキストを読み上げる"""
+    """テキストを音声ファイル(WAV)に保存してStreamlitで再生する（プレイヤーはCSSで隠す）"""
     try:
-        time.sleep(0.3)  # 読み上げ前に少し待機
+        # 一時ファイル名
+        temp_file = "temp_speech.wav"
+        
+        # エンジン初期化 & 保存
+        # 注意: 毎回initすると重くなる場合があるので、モジュールグローバルでinit済みのengineを使う設計もアリですが、
+        # Streamlitのrerun特性上、ここでのinit/stopが最も安全です。
         engine = pyttsx3.init()
         engine.setProperty('rate', READING_SPEED)
-        engine.say(text)
+        engine.save_to_file(text, temp_file)
         engine.runAndWait()
         engine.stop()
+        
+        # 再生 (CSSで .stAudio { display: none; } となっていれば表示されない)
+        if os.path.exists(temp_file):
+            with open(temp_file, "rb") as f:
+                audio_bytes = f.read()
+                
+            # autoplay=True で自動再生
+            st.audio(audio_bytes, format="audio/wav", autoplay=True)
+            
     except Exception as e:
-        st.warning(f"音声読み上げエラー: {e}")
+        # エラー時はコンソールに出すか、開発中はst.warningで表示するなど
+        print(f"音声読み上げエラー: {e}")
 
 
 def load_model():
@@ -104,31 +117,7 @@ def load_model():
             except Exception as e:
                 st.error(f"モデル読み込み中にエラーが発生しました: {e}")
 
-
-def start_gaze_tracker():
-    """アイトラッキングを開始"""
-    stop_event = threading.Event()
-    result_container = {"distance": 0.0, "camera_ready": False}
-    
-    thread = threading.Thread(target=run_gaze_tracker, args=(stop_event, result_container))
-    thread.start()
-    
-    st.session_state.tracker_thread = thread
-    st.session_state.stop_event = stop_event
-    st.session_state.result_container = result_container
-
-
-def stop_gaze_tracker():
-    """アイトラッキングを停止して結果を取得"""
-    final_distance = 0.0
-    
-    if st.session_state.tracker_thread is not None:
-        st.session_state.stop_event.set()
-        st.session_state.tracker_thread.join()
-        final_distance = st.session_state.result_container["distance"]
-        st.session_state.tracker_thread = None
-    
-    return final_distance
+# アイトラッキング関連の関数（start/stop/run_gaze_tracker）は削除しました
 
 # ============================================================================
 # UI Functions
@@ -191,151 +180,6 @@ def ask_unknown_words_ui(quizes_and_images, max_count=20):
             return [], [], False
     
     return [], [], False
-
-# ============================================================================
-# Gaze Tracking
-# ============================================================================
-def run_gaze_tracker(stop_event, result_container):
-    """
-    アイトラッキング実行用関数（スレッドで動かす用）
-    Args:
-        stop_event: スレッドを停止させるためのフラグ
-        result_container: 計測結果（距離）を格納する辞書
-    """
-    mp_face_mesh = mp.solutions.face_mesh
-    
-    # カメラ起動
-    cap = cv2.VideoCapture(1)
-    if not cap.isOpened():
-        print("Camera not found")
-        return
-    
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    
-    total_distance = 0.0
-    prev_left_iris = None
-    prev_right_iris = None
-    prev_head_pos = None
-    camera_initialized = False
-    
-    # MediaPipe起動
-    with mp_face_mesh.FaceMesh(
-        max_num_faces=1,
-        refine_landmarks=True,
-        min_detection_confidence=0.5,
-        min_tracking_confidence=0.5
-    ) as face_mesh:
-        
-        while not stop_event.is_set() and cap.isOpened():
-            success, image = cap.read()
-            if not success:
-                continue
-            
-            # カメラが正常に起動したことを通知
-            if not camera_initialized:
-                result_container["camera_ready"] = True
-                camera_initialized = True
-            
-            # 画像処理
-            image.flags.writeable = False
-            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            results = face_mesh.process(image_rgb)
-            
-            image.flags.writeable = True
-            image = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
-            
-            if results.multi_face_landmarks:
-                for face_landmarks in results.multi_face_landmarks:
-                    # --- 顔の動き検出 ---
-                    # 鼻の頭 (Landmark 1) を取得
-                    nose_pt = face_landmarks.landmark[1]
-                    curr_head_pos = np.array([nose_pt.x * width, nose_pt.y * height])
-
-                    is_head_moving = False
-                    if prev_head_pos is not None:
-                        head_dist = np.linalg.norm(curr_head_pos - prev_head_pos)
-                        if head_dist > FACE_MOVE_THRESHOLD:
-                            is_head_moving = True
-                    
-                    prev_head_pos = curr_head_pos
-
-                    if is_head_moving:
-                        # 顔が動いている間はリセット
-                        prev_left_iris = None
-                        prev_right_iris = None
-                        cv2.putText(image, "Head Moving", (30, 80),
-                                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                        continue
-
-                    # 瞬き検出 (Blink Detection)
-                    left_eye_top = face_landmarks.landmark[159]
-                    left_eye_bottom = face_landmarks.landmark[145]
-                    right_eye_top = face_landmarks.landmark[386]
-                    right_eye_bottom = face_landmarks.landmark[374]
-                    
-                    # 縦方向の距離（ピクセル換算）
-                    l_dist = abs(left_eye_top.y - left_eye_bottom.y) * height
-                    r_dist = abs(right_eye_top.y - right_eye_bottom.y) * height
-                    
-                    # 閾値以下なら瞬きとみなす
-                    BLINK_THRESHOLD = 5.5
-                    
-                    if l_dist < BLINK_THRESHOLD or r_dist < BLINK_THRESHOLD:
-                        # 瞬き中は前の位置情報をリセット（再開時に距離が加算されないようにする）
-                        prev_left_iris = None
-                        prev_right_iris = None
-                        
-                        cv2.putText(image, "Blink", (30, 80),
-                                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
-                        # 瞬き時は処理をスキップ（continueするとループの先頭に戻るが、
-                        # ここはforループ内なので、次のface_landmarksへ... 
-                        # しかしmax_num_faces=1なので実質次のフレームへ）
-                        # ただし、描画更新のためにcontinueせず、iris計算だけスキップする形にするか、
-                        # あるいはここでcontinueして、imshowはループ外にあるので...
-                        # あ、imshowはwhileループの最後にある。
-                        # ここでcontinueすると、imshowが呼ばれずに次のcap.read()に行ってしまう？
-                        # いや、forループのcontinueなので、multi_face_landmarksの次の要素へ行くだけ。
-                        # max_num_faces=1ならループを抜ける。
-                        # その後、imshowの行に行く。
-                        # なので、iris計算をスキップするだけでよい。
-                        pass
-                    else:
-                        l_pt = face_landmarks.landmark[468]
-                        r_pt = face_landmarks.landmark[473]
-                        
-                        curr_left_iris = np.array([l_pt.x * width, l_pt.y * height])
-                        curr_right_iris = np.array([r_pt.x * width, r_pt.y * height])
-                        
-                        # 描画
-                        cv2.circle(image, (int(curr_left_iris[0]), int(curr_left_iris[1])), 3, (0, 255, 0), -1)
-                        cv2.circle(image, (int(curr_right_iris[0]), int(curr_right_iris[1])), 3, (0, 255, 0), -1)
-                        
-                        if prev_left_iris is not None and prev_right_iris is not None:
-                            dist_l = np.linalg.norm(curr_left_iris - prev_left_iris)
-                            dist_r = np.linalg.norm(curr_right_iris - prev_right_iris)
-                            avg_dist = (dist_l + dist_r) / 2.0
-                            
-                            if avg_dist > MOVEMENT_THRESHOLD:
-                                total_distance += avg_dist
-                        
-                        prev_left_iris = curr_left_iris
-                        prev_right_iris = curr_right_iris
-            
-            # 結果をコンテナに書き込む
-            result_container["distance"] = total_distance
-            
-            # 確認用ウィンドウを表示
-            cv2.putText(image, f"Dist: {int(total_distance)}", (30, 50),
-                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
-            cv2.imshow('Gaze Tracker (Running)', image)
-            
-            if cv2.waitKey(5) & 0xFF == ord('q'):
-                break
-    
-    # 終了処理
-    cap.release()
-    cv2.destroyAllWindows()
 
 # ============================================================================
 # Image Processing Functions
@@ -435,112 +279,96 @@ def process_image_pattern2(quiz_data, index):
 # ============================================================================
 def render_tab1_quiz_selection():
     """タブ1: クイズ選択"""
+    st.header("実験設定")
+    
+    # データセットのステータス表示
+    if not st.session_state.experiment_set:
+        st.warning("データセットが読み込まれていません。")
+        return
+
+    total_loaded = len(st.session_state.experiment_set)
+    st.write(f"読み込み済みクイズ数: {total_loaded} 問")
+
     max_quizzes = st.number_input(
-        "最大クイズ数（前半と後半に均等に分割されます）",
+        "実験に使用する最大クイズ数（前半と後半に均等に分割されます）",
         min_value=2,
-        max_value=1000,
-        value=80,
-        step=1,
+        max_value=total_loaded,
+        value=min(20, total_loaded),
+        step=2,  # 偶数単位で増減
         key="max_quizzes"
     )
     
     st.radio(
-        "問題順序（パターン割り当て）",
-        ["1", "2"],
+        "条件割り当て順序",
+        ["1: 前半=P1(Saliency), 後半=P2(固定)", "2: 前半=P2(固定), 後半=P1(Saliency)"],
         key="quiz_order_radio",
-        horizontal=True,
+        horizontal=False,
         index=0,
     )
     
-    if 'quiz_started' not in st.session_state:
-        st.session_state.quiz_started = False
-    if 'max_quizzes_on_start' not in st.session_state:
-        st.session_state.max_quizzes_on_start = 20
-    
-    if st.button("クイズを開始", key="start_quiz"):
-        st.session_state.quiz_started = True
+    # クイズ開始（設定確定）ボタン
+    if st.button("実験セットアップを実行", key="start_quiz"):
+        # セッション状態のリセット
+        st.session_state.quiz_started = True 
         st.session_state.unknown_quizes_part1 = []
         st.session_state.unknown_quizes_part2 = []
-        st.session_state.quiz_selection_done = False
         st.session_state.processed_images_p1 = []
         st.session_state.processed_images_p2 = []
         st.session_state.p1_quiz_started = False
         st.session_state.p2_quiz_started = False
         st.session_state.p1_quiz_idx = 0
         st.session_state.p2_quiz_idx = 0
-        
-        # クイズ状態をリセット
-        max_to_reset = max(50, st.session_state.max_quizzes_on_start)
-        for i in range(max_to_reset):
-            if f"quiz_{i}" in st.session_state:
-                del st.session_state[f"quiz_{i}"]
-        
         st.session_state.max_quizzes_on_start = int(max_quizzes)
         
-        # ターミナル出力
-        try:
-            total_quizzes_in_set = len(st.session_state.experiment_set)
-            num_presented = st.session_state.max_quizzes_on_start
-            
-            if total_quizzes_in_set > num_presented:
-                unpresented_indices = list(range(num_presented, total_quizzes_in_set))
-                print(f"\n--- [タブ1]で出題されなかった問題: {len(unpresented_indices)} 問 ---")
-            else:
-                print("\n--- [タブ1] すべての問題が出題対象となりました ---")
-        except Exception as e:
-            print(f"ターミナル出力中にエラー: {e}")
+        # 過去の回答記録をクリア
+        keys_to_remove = [k for k in st.session_state.keys() if k.startswith("quiz_") or k.startswith("pattern")]
+        for k in keys_to_remove:
+            if k in st.session_state:
+                del st.session_state[k]
+
+        # データセットの準備と分割
+        full_set = st.session_state.experiment_set
+        # 指定数だけ取得（先頭から）
+        current_set = full_set[:st.session_state.max_quizzes_on_start]
         
-        st.rerun()
-    
-    if st.session_state.quiz_started and not st.session_state.quiz_selection_done:
-        # ask_unknown_words_ui の戻り値:
-        # - unknown_p1: 前半グループの未知語リスト [(question_1, question_1_read, target, image, question_2, answer, dammy1, dammy2, dammy3, original_index), ...]
-        # - unknown_p2: 後半グループの未知語リスト [(question_1, question_1_read, target, image, question_2, answer, dammy1, dammy2, dammy3, original_index), ...]
-        # - completed: 選択が完了したかどうか (True/False)
-        unknown_p1, unknown_p2, completed = ask_unknown_words_ui(
-            st.session_state.experiment_set,
-            max_count=st.session_state.max_quizzes_on_start
-        )
+        # データにインデックス情報を付与 (item + (original_index,))
+        formatted_set = []
+        for i, item in enumerate(current_set):
+            formatted_set.append(item + (i,))
+            
+        # 半分に分割
+        mid_point = len(formatted_set) // 2
+        part1 = formatted_set[:mid_point]
+        part2 = formatted_set[mid_point:]
         
-        if completed:
-            # 問題順序「2」が選択されていたら入れ替え
-            if st.session_state.get("quiz_order_radio") == "2":
-                print("\n--- [タブ1] 問題順序「2」が選択されたため、part1とpart2を入れ替えます ---")
-                unknown_p1, unknown_p2 = unknown_p2, unknown_p1
-            else:
-                print("\n--- [タブ1] 問題順序「1」が選択されました (通常) ---")
-            
-            st.session_state.unknown_quizes_part1 = unknown_p1
-            st.session_state.unknown_quizes_part2 = unknown_p2
-            
-            random.shuffle(st.session_state.unknown_quizes_part1)
-            random.shuffle(st.session_state.unknown_quizes_part2)
-            
-            st.session_state.quiz_selection_done = True
-            st.session_state.quiz_started = False
-            
-            st.success(f"前半 {len(st.session_state.unknown_quizes_part1)}個, "
-                      f"後半 {len(st.session_state.unknown_quizes_part2)}個 の未知の単語が見つかりました！")
-            
-            if st.session_state.get("quiz_order_radio") == "2":
-                st.info("問題順序「2」が選択されたため、前半グループが「パターン2 (下部固定)」、後半グループが「パターン1 (Saliency)」に割り当てられます。")
-            else:
-                st.info("問題順序「1」が選択されたため、前半グループが「パターン1 (Saliency)」、後半グループが「パターン2 (下部固定)」に割り当てられます。")
-            
-            st.rerun()
-    
-    if st.session_state.quiz_selection_done:
-        st.info(f"✅ 前半 {len(st.session_state.unknown_quizes_part1)}個, "
-               f"後半 {len(st.session_state.unknown_quizes_part2)}個 の未知の単語が選択されました。")
+        # 条件順序による入れ替え
+        # ラジオボタンの選択肢文字列から判定（"1:..." or "2:..."）
+        selected_order = st.session_state.get("quiz_order_radio", "1")[0]
         
-        if st.session_state.get("quiz_order_radio") == "2":
-            st.warning(f"問題順序「2」（入れ替え）が選択されています。\n"
-                      f"* 前半グループ ({len(st.session_state.unknown_quizes_part1)}個) は **パターン2 (下部固定)** で学習・テストします。\n"
-                      f"* 後半グループ ({len(st.session_state.unknown_quizes_part2)}個) は **パターン1 (Saliency)** で学習・テストします。")
+        if selected_order == "2":
+            st.session_state.unknown_quizes_part1 = part2 # P1用変数にpart2を入れる（変則的だが、ロジック上はP1用のリストに何を入れるか）
+            st.session_state.unknown_quizes_part2 = part1 # P2用変数にpart1を入れる
+            print("\n--- [タブ1] 条件割り当て: 前半セット->P2(固定), 後半セット->P1(Saliency) ---")
         else:
-            st.success(f"問題順序「1」（通常）が選択されています。\n"
-                      f"* 前半グループ ({len(st.session_state.unknown_quizes_part1)}個) は **パターン1 (Saliency)** で学習・テストします。\n"
-                      f"* 後半グループ ({len(st.session_state.unknown_quizes_part2)}個) は **パターン2 (下部固定)** で学習・テストします。")
+            st.session_state.unknown_quizes_part1 = part1
+            st.session_state.unknown_quizes_part2 = part2
+            print("\n--- [タブ1] 条件割り当て: 前半セット->P1(Saliency), 後半セット->P2(固定) ---")
+            
+        # ランダムシャッフル（実験順序効果の低減のため）
+        random.shuffle(st.session_state.unknown_quizes_part1)
+        random.shuffle(st.session_state.unknown_quizes_part2)
+        
+        st.session_state.quiz_selection_done = True
+        st.rerun()
+
+    # セットアップ完了後の表示
+    if st.session_state.get("quiz_selection_done", False):
+        p1_count = len(st.session_state.unknown_quizes_part1)
+        p2_count = len(st.session_state.unknown_quizes_part2)
+        
+        st.success("✅ 実験セットアップが完了しました。")
+        st.info(f"**パターン1 (Saliency)**: {p1_count} 問\n\n**パターン2 (下部固定)**: {p2_count} 問")
+        st.write("「画像処理」タブへ移動して準備を進めてください。")
 
 
 def render_tab2_image_processing():
@@ -567,13 +395,9 @@ def render_tab2_image_processing():
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 
-                # quizes_p1: パターン1（Saliency方式）で処理する未知語のリスト
-                # 各要素は (question_1, question_1_read, target, image, question_2, answer, dammy1, dammy2, dammy3, original_index) のタプル
                 quizes_p1 = st.session_state.unknown_quizes_part1
                 total_p1 = min(len(quizes_p1), NUM_TO_OPTIMIZE)
                 
-                # quizes_p2: パターン2（下部固定方式）で処理する未知語のリスト
-                # 各要素は (question_1, question_1_read, target, image, question_2, answer, dammy1, dammy2, dammy3, original_index) のタプル
                 quizes_p2 = st.session_state.unknown_quizes_part2
                 total_p2 = min(len(quizes_p2), NUM_TO_OPTIMIZE)
                 
@@ -615,23 +439,27 @@ def initialize_learning_session_state(pattern_num):
         st.session_state[f'{prefix}_started'] = False
     if f'{prefix}_idx' not in st.session_state:
         st.session_state[f'{prefix}_idx'] = 0
-    if f'{prefix}_camera_ready' not in st.session_state:
-        st.session_state[f'{prefix}_camera_ready'] = False
     if f'start_time_{pattern_num}' not in st.session_state:
         st.session_state[f'start_time_{pattern_num}'] = 0
     if f'end_time_{pattern_num}' not in st.session_state:
         st.session_state[f'end_time_{pattern_num}'] = 0
     if f'p{pattern_num}_study_time_logged' not in st.session_state:
         st.session_state[f'p{pattern_num}_study_time_logged'] = False
-    if "tracker_thread" not in st.session_state:
-        st.session_state.tracker_thread = None
-        st.session_state.stop_event = None
-        st.session_state.result_container = {"distance": 0.0, "camera_ready": False}
-        st.session_state.start_time = None
 
 
 def render_learning_tab(pattern_num, pattern_name, processed_images_key):
-    """学習タブのレンダリング（共通処理）"""
+    st.markdown(
+        """
+        <style>
+        /* オーディオプレイヤーを非表示にする */
+        .stAudio {
+            display: none;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
     initialize_learning_session_state(pattern_num)
     
     prefix = f"pattern{pattern_num}"
@@ -643,100 +471,68 @@ def render_learning_tab(pattern_num, pattern_name, processed_images_key):
         if st.button("学習を開始", key=f"{prefix}_start"):
             st.session_state[f'{prefix}_idx'] = 0
             st.session_state[f'{prefix}_started'] = True
-            st.session_state[f'{prefix}_camera_ready'] = False
             st.session_state[f'start_time_{pattern_num}'] = time.time()
-            
-            start_gaze_tracker()
-            
             st.session_state[f'p{pattern_num}_study_time_logged'] = False
             st.session_state[f'end_time_{pattern_num}'] = 0
             st.rerun()
     else:
-        # カメラ準備中の画面
-        if not st.session_state[f'{prefix}_camera_ready']:
-            # カメラの準備状態を自動検知
-            if st.session_state.result_container.get("camera_ready", False):
-                st.session_state[f'{prefix}_camera_ready'] = True
+        # 問題表示
+        curr_idx = st.session_state[f'{prefix}_idx']
+        
+        if curr_idx < len(processed_images):
+            # 次の問題に進むボタン
+            if st.button("次の問題へ", key=f"{prefix}_next"):
+                st.session_state[f'{prefix}_idx'] += 1
                 st.rerun()
-            else:
-                st.info("📷 カメラを起動しています...")
-                st.write("しばらくお待ちください...")
-                time.sleep(0.5)  # 少し待ってから再チェック
-                st.rerun()
-        else:
-            # 問題表示
-            curr_idx = st.session_state[f'{prefix}_idx']
-            
-            if curr_idx < len(processed_images):
-                # 次の問題に進むボタン
-                if st.button("次の問題へ", key=f"{prefix}_next"):
-                    st.session_state[f'{prefix}_idx'] += 1
-                    st.rerun()
 
-                # JavaScriptを埋め込んでEnterキーでボタンをクリックさせる
-                # 親ウィンドウ（メイン画面）にイベントリスナーを追加することで、どこにフォーカスがあっても反応するようにする
-                st.components.v1.html(
-                    f"""
-                    <script>
-                    const parentDoc = window.parent.document;
-                    if (!parentDoc.hasOwnProperty('_enter_listener_attached_{prefix}')) {{
-                        parentDoc.addEventListener('keydown', function(e) {{
-                            if (e.keyCode === 13) {{
-                                const buttons = parentDoc.getElementsByTagName('button');
-                                for (let i = 0; i < buttons.length; i++) {{
-                                    if (buttons[i].innerText.includes("次の問題へ")) {{
-                                        buttons[i].click();
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        break;
-                                    }}
+            # JavaScriptを埋め込んでEnterキーでボタンをクリックさせる
+            st.components.v1.html(
+                f"""
+                <script>
+                const parentDoc = window.parent.document;
+                if (!parentDoc.hasOwnProperty('_enter_listener_attached_{prefix}')) {{
+                    parentDoc.addEventListener('keydown', function(e) {{
+                        if (e.keyCode === 13) {{
+                            const buttons = parentDoc.getElementsByTagName('button');
+                            for (let i = 0; i < buttons.length; i++) {{
+                                if (buttons[i].innerText.includes("次の問題へ")) {{
+                                    buttons[i].click();
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    break;
                                 }}
                             }}
-                        }});
-                        parentDoc['_enter_listener_attached_{prefix}'] = true;
-                    }}
-                    </script>
-                    """,
-                    height=0,
-                    width=0,
-                )
+                        }}
+                    }});
+                    parentDoc['_enter_listener_attached_{prefix}'] = true;
+                }}
+                </script>
+                """,
+                height=0,
+                width=0,
+            )
+            
+            item = processed_images[curr_idx]
+            st.image(item['processed_image'], use_container_width=True)
+            read_text(item['question_1_read'])
+        else:
+            st.info("すべての問題を表示し終えました。")
+            
+            if not st.session_state[f'p{pattern_num}_study_time_logged']:
+                st.session_state[f'end_time_{pattern_num}'] = time.time()
+                study_time = st.session_state[f'end_time_{pattern_num}'] - st.session_state[f'start_time_{pattern_num}']
                 
-                # itemの中身（辞書）:
-                # - question_1: 質問文1
-                # - question_1_read: 質問文1の読み
-                # - target: ターゲット単語
-                # - question_2: 質問文2
-                # - answer: 正解
-                # - dammy1, dammy2, dammy3: ダミー選択肢
-                # - original_image: 元の画像(PIL)
-                # - processed_image: 文字入れ後の画像(PIL)
-                # - position: 文字の位置 (x, y)
-                # - original_index: 元のインデックス
-                item = processed_images[curr_idx]
-                st.image(item['processed_image'], use_container_width=True)
-                read_text(item['question_1_read'])
-            else:
-                st.info("すべての問題を表示し終えました。")
+                print(f"\n--- [タブ{pattern_num+2}] {pattern_name} 学習時間: {study_time:.2f} s ---")
                 
-                if not st.session_state[f'p{pattern_num}_study_time_logged']:
-                    st.session_state[f'end_time_{pattern_num}'] = time.time()
-                    study_time = st.session_state[f'end_time_{pattern_num}'] - st.session_state[f'start_time_{pattern_num}']
-                    
-                    final_distance = stop_gaze_tracker()
-                    
-                    print(f"\n--- [タブ{pattern_num+2}] {pattern_name} 学習時間: {study_time:.2f} s ---")
-                    print(f"\n--- [タブ{pattern_num+2}] {pattern_name} 視線移動距離: {final_distance:.2f} ---")
-                    
-                    st.session_state[f'p{pattern_num}_study_time_logged'] = True
-                
-                if st.button("最初からやり直す", key=f"{prefix}_reset"):
-                    st.session_state[f'{prefix}_idx'] = 0
-                    st.session_state[f'{prefix}_started'] = False
-                    st.session_state[f'{prefix}_camera_ready'] = False
-                    st.session_state[f'start_time_{pattern_num}'] = 0
-                    st.session_state[f'end_time_{pattern_num}'] = 0
-                    st.session_state[f'p{pattern_num}_study_time_logged'] = False
-                    st.rerun()
+                st.session_state[f'p{pattern_num}_study_time_logged'] = True
+            
+            if st.button("最初からやり直す", key=f"{prefix}_reset"):
+                st.session_state[f'{prefix}_idx'] = 0
+                st.session_state[f'{prefix}_started'] = False
+                st.session_state[f'start_time_{pattern_num}'] = 0
+                st.session_state[f'end_time_{pattern_num}'] = 0
+                st.session_state[f'p{pattern_num}_study_time_logged'] = False
+                st.rerun()
 
 
 def initialize_quiz_session_state(pattern_num):

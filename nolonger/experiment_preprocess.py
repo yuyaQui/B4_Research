@@ -1,6 +1,6 @@
 import pickle
 import os
-from experiment_load_quizes import load_quizzes
+from nolonger.experiment_load_quizes import load_quizzes
 from experiment_generate_image import generate_image_from_quiz
 
 # クイズの最大数
