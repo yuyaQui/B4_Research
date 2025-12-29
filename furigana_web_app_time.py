@@ -26,17 +26,17 @@ from experiment_image_draw import (
 # ============================================================================
 MODEL_PATH_DENSE = r'pretrained_models\TranSalNet_Dense.pth'
 SOURCE_PATH = "experiment_quiz"
-DEFAULT_NUM_QUIZZES_PER_CONDITION = 30  # 1条件あたりの問題数
-READING_SPEED = 130
-TIME_LIMIT_BUFFER_SEC = 1.0 # 音声読了後に追加する猶予時間(秒)
-AUDIO_DELAY_SEC = 2.0 # 画像表示から音声再生開始までの遅延時間(秒)
+DEFAULT_NUM_QUIZZES_PER_CONDITION = 25  # 1条件あたりの問題数
+READING_SPEED = 150
+TIME_LIMIT_BUFFER_SEC = 0 # 音声読了後に追加する猶予時間(秒)
+AUDIO_DELAY_SEC = 1.5 # 画像表示から音声再生開始までの遅延時間(秒)
 
 # 実験条件定義
 CONDITIONS = {
-    'A': {'name': '条件A (動的配置・時間固定あり)', 'type': 'saliency', 'time_limit': True},
-    'B': {'name': '条件B (動的配置・時間固定なし)', 'type': 'saliency', 'time_limit': False},
-    'C': {'name': '条件C (固定配置・時間固定あり)', 'type': 'fixed', 'time_limit': True},
-    'D': {'name': '条件D (固定配置・時間固定なし)', 'type': 'fixed', 'time_limit': False},
+    'A': {'name': '条件A (動的配置・時間制限あり)', 'type': 'saliency', 'time_limit': True},
+    'B': {'name': '条件B (動的配置・時間制限なし)', 'type': 'saliency', 'time_limit': False},
+    'C': {'name': '条件C (固定配置・時間制限あり)', 'type': 'fixed', 'time_limit': True},
+    'D': {'name': '条件D (固定配置・時間制限なし)', 'type': 'fixed', 'time_limit': False},
 }
 
 # ラテン方格の順序パターン
@@ -213,10 +213,10 @@ def render_tab1_config():
     
     st.markdown("""
     **条件詳細:**
-    - **A**: 動的配置 + 時間固定あり(音声長+1s)
-    - **B**: 動的配置 + 時間固定なし
-    - **C**: 固定配置 + 時間固定あり(音声長+1s)
-    - **D**: 固定配置 + 時間固定なし
+    - **A**: 動的配置 + 時間制限あり（音声長+1s）
+    - **B**: 動的配置 + 時間制限なし
+    - **C**: 固定配置 + 時間制限あり（音声長+1s）
+    - **D**: 固定配置 + 時間制限なし
     """)
 
     if st.button("実験条件を確定してセットアップ", key="setup_experiment"):
@@ -324,6 +324,7 @@ def initialize_block_state(block_prefix):
     if f'{block_prefix}_start_time' not in st.session_state:
         st.session_state[f'{block_prefix}_start_time'] = 0
 
+
 def render_learning_tab(block_index):
     """学習タブ (Block単位)"""
     if not st.session_state.quiz_selection_done or block_index >= len(st.session_state.experiment_blocks):
@@ -363,27 +364,48 @@ def render_learning_tab(block_index):
             item = processed[idx]
             
             # --- Hidden Button for Timeout Trigger ---
-            # Javascriptからクリックするための隠しボタン
-            # タブ間で干渉しないよう、テキストにPrefixを含める
+            # 時間制限終了時にJavaScriptから呼び出される
             trigger_btn_text = f"TimeoutTrigger_{prefix}"
             if st.button(trigger_btn_text, key=f"{prefix}_timeout_btn"):
                 st.session_state[f'{prefix}_timeout'] = True
                 st.rerun()
-            
-            # Note: ボタンの非表示処理は後方の st.components.v1.html 内のJSで行う
-            # -----------------------------------------
 
-            # ナビゲーション
+            # ナビゲーション（非表示だがEnterキーで動作）
             next_btn_text = f"次の問題へ (Block {block['id']})"
+            
             if st.button(next_btn_text, key=f"{prefix}_next"):
                 st.session_state[f'{prefix}_idx'] += 1
                 st.session_state[f'{prefix}_timeout'] = False
                 st.rerun()
             
+            # JavaScriptで「次の問題へ」ボタンを非表示
+            st.components.v1.html(f"""
+            <script>
+            if (!window.hideNextBtn_{prefix}) {{
+                function hideNextButton() {{
+                    const btns = window.parent.document.getElementsByTagName('button');
+                    for (let btn of btns) {{
+                        if (btn.innerText.includes('{next_btn_text}')) {{
+                            btn.style.position = 'absolute';
+                            btn.style.opacity = '0';
+                            btn.style.pointerEvents = 'none';
+                            btn.style.width = '0';
+                            btn.style.height = '0';
+                            btn.style.margin = '0';
+                            btn.style.padding = '0';
+                        }}
+                    }}
+                }}
+                hideNextButton();
+                window.hideNextBtn_{prefix} = setInterval(hideNextButton, 200);
+            }}
+            </script>
+            """, height=0)
+            
             # 音声生成とデュレーション取得
             audio_path, audio_duration = generate_audio(item['question_1_read'])
 
-            # Javascript (Time Limit + Enter Key)
+            # Javascript (Time Limit + Enter Key + Visibility Tracking)
             time_limit_sec = 10 # デフォルト
             is_time_limit = block['time_limit']
             
@@ -517,8 +539,9 @@ def render_learning_tab(block_index):
                     function hideTriggerButton() {{
                         const btns = window.parent.document.getElementsByTagName('button');
                         for (let btn of btns) {{
-                            // "TimeoutTrigger_" で始まるボタンをすべて隠す
-                            if (btn.innerText.trim().startsWith('TimeoutTrigger_')) {{
+                            // "TimeoutTrigger_" で始まるボタンを隠す
+                            const text = btn.innerText.trim();
+                            if (text.startsWith('TimeoutTrigger_')) {{
                                 btn.style.display = 'none';
                             }}
                         }}
@@ -537,18 +560,20 @@ def render_learning_tab(block_index):
             # 画像表示
             if should_show_content:
                 st.image(item['processed_image'], width='stretch')
-            else:
-                st.info("終了。Enterキーを押して次の問題へ進んでください。")
 
         else:
+            # 学習終了 - シンプルに経過時間を計算
             st.success("Block学習終了。テストタブへ進んでください。")
+            
             if not st.session_state[f'{prefix}_logged']:
-                duration = time.time() - st.session_state[f'{prefix}_start_time']
-                print(f"Block {block['id']} Learning Time: {duration:.2f}s")
+                # 開始時刻から終了時刻までの経過時間を計算
+                total_time = time.time() - st.session_state[f'{prefix}_start_time']
+                print(f"✅ Block {block['id']} ({block['condition_name']}) - 学習時間: {total_time:.2f}秒")
                 st.session_state[f'{prefix}_logged'] = True
             
             if st.button("リセット (デバッグ用)", key=f"{prefix}_reset"):
                 st.session_state[f'{prefix}_started'] = False
+                st.session_state[f'{prefix}_logged'] = False
                 st.rerun()
 
 def render_quiz_tab(block_index):
@@ -619,7 +644,6 @@ def render_quiz_tab(block_index):
                     st.warning("選択してください。")
         else:
             score = st.session_state[f'{prefix}_score']
-            st.subheader(f"テスト終了！ スコア: {score} / {total_q}")
             
             if st.session_state[f'{prefix}_ended'] == False:
                 print(f"Block {block['id']} Test Result: {score}/{total_q}")

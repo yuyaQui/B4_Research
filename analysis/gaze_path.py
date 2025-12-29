@@ -12,13 +12,12 @@ JSON_PATH = './results/livedata.json.gz'      # Tobiiの生データ（GZIP圧�
 DISPLAY_RES = (3840, 1483)          # 実際のPCモニターの解像度（変換先の基準）
 
 # ★解析時間の指定（秒）
-START_TIME = 15  # ここから解析開始（実験開始の合図など）
-STUDY_TIME = 414
+START_TIME = 19  # ここから解析開始（実験開始の合図など）
+STUDY_TIME = 310
 END_TIME = STUDY_TIME + START_TIME    # ここで終了（Noneの場合は動画の最後まで）
 PLAY_SPEED = 25 # 何倍速か
-PLAY_SPEED = 25 # 何倍速か
-MARGIN_PX_X = -800 # 横方向の画面外許容ピクセル数（狭くする）
-MARGIN_PX_Y = 200 # 縦方向の画面外許容ピクセル数
+MARGIN_PX_X = -1000 # 横方向の画面外許容ピクセル数（狭くする）
+MARGIN_PX_Y = 300 # 縦方向の画面外許容ピクセル数
 
 # ==========================================
 # 2. ArUcoマーカーの設定
@@ -127,9 +126,21 @@ def main():
     wait_time = 1
     
     total_distance = 0.0 # 総移動距離の累積用変数
-    prev_pos = None      # 1フレーム前の視線位置（距離計算用）
+    prev_pos = None      # ★視線座標の平滑化用バッファ（ノイズ除去）
+    gaze_buffer = []     # 過去N フレームの視線座標を保持
+    SMOOTH_WINDOW = 5    # 移動平均のウィンドウサイズ
+    
+    # ★ホモグラフィ行列の時間的平滑化（頭の揺れ対策）
+    prev_H = None        # 前フレームのホモグラフィ行列
+    H_ALPHA = 0.3        # 平滑化係数（0=完全に前フレーム、1=完全に現フレーム）
+    
     valid_frames = 0     # 計算に成功したフレーム数
     frame_count = 0      # 処理フレーム数カウンタ
+    
+    # ★詳細統計用カウンタ
+    marker_lost_frames = 0    # マーカー検出失敗フレーム数
+    no_gaze_frames = 0        # 視線データなしフレーム数
+    off_screen_frames = 0     # 画面外視線フレーム数
     
     # --- シーク処理 ---
     # 指定した開始時間まで動画の再生位置を一気に飛ばす（高速化）
@@ -210,11 +221,41 @@ def main():
                 # 必要なID(0,1,2,3)が揃っているか確認
                 if all(mid in found_markers for mid in MARKER_IDS):
                     src_pts = np.array([found_markers[mid] for mid in MARKER_IDS], dtype="float32")
+                    
+                    # ★サブピクセル精度でコーナーを再計算（精度向上）
+                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+                    src_pts_refined = cv2.cornerSubPix(
+                        gray, 
+                        src_pts.reshape(-1, 1, 2), 
+                        (5, 5),  # 探索ウィンドウサイズ
+                        (-1, -1),  # デッドゾーン（なし）
+                        criteria
+                    ).reshape(-1, 2)
+                    
                     dst_pts = np.array([
                         [0, 0], [DISPLAY_RES[0], 0],
                         [DISPLAY_RES[0], DISPLAY_RES[1]], [0, DISPLAY_RES[1]]
                     ], dtype="float32")
-                    H, _ = cv2.findHomography(src_pts, dst_pts)
+                    
+                    # ★RANSACを使用してより頑健なホモグラフィを計算
+                    H_current, mask = cv2.findHomography(
+                        src_pts_refined, 
+                        dst_pts, 
+                        cv2.RANSAC,  # 外れ値に強い
+                        5.0  # 再投影誤差の閾値（ピクセル）
+                    )
+                    
+                    # ★ホモグラフィの時間的平滑化（頭の揺れによるジッター除去）
+                    if H_current is not None:
+                        if prev_H is not None:
+                            # 指数移動平均（EMA）で平滑化
+                            H = H_ALPHA * H_current + (1 - H_ALPHA) * prev_H
+                        else:
+                            H = H_current
+                        prev_H = H.copy()
+                    else:
+                        H = prev_H  # 検出失敗時は前フレームの値を使用
 
 
                 if do_render and H is not None:
@@ -282,8 +323,15 @@ def main():
                     else:
                         on_screen = False
                         prev_pos = None
+                        off_screen_frames += 1  # ★画面外カウント
                 else:
                     prev_pos = None # マーカーロスト時も連続性を切る
+                    if has_gaze:
+                        marker_lost_frames += 1  # ★マーカーロストカウント
+        
+        # 視線データがない場合
+        if not has_gaze:
+            no_gaze_frames += 1  # ★視線データなしカウント
 
         # =========================================================
         # 3. 情報表示 (UI) - 表示タイミングのみ
@@ -321,8 +369,20 @@ def main():
     # 結果表示
     print("-" * 30)
     print(f"解析範囲: {START_TIME}秒 ～ {END_TIME if END_TIME else '最後'} まで")
+    print(f"総フレーム数: {frame_count}")
     print(f"有効フレーム数: {valid_frames}")
+    print(f"有効率: {valid_frames / frame_count * 100:.1f}%" if frame_count > 0 else "有効率: N/A")
+    print()
+    print("【無効フレームの内訳】")
+    invalid_frames = frame_count - valid_frames
+    print(f"  無効フレーム総数: {invalid_frames} ({invalid_frames / frame_count * 100:.1f}%)")
+    print(f"  - マーカー検出失敗: {marker_lost_frames} ({marker_lost_frames / frame_count * 100:.1f}%)")
+    print(f"  - 視線データなし: {no_gaze_frames} ({no_gaze_frames / frame_count * 100:.1f}%)")
+    print(f"  - 画面外視線: {off_screen_frames} ({off_screen_frames / frame_count * 100:.1f}%)")
+    print()
     print(f"ディスプレイ上の総移動距離: {total_distance:.2f} px")
+    if valid_frames > 0:
+        print(f"平均移動距離/フレーム: {total_distance / valid_frames:.2f} px")
 
 if __name__ == "__main__":
     main()

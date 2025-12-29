@@ -3,10 +3,11 @@ from PIL import Image
 from io import BytesIO
 import os
 import csv
+import time
 
 import config
 
-def generate_image_from_quiz(question: str, answer: str) -> Image.Image:
+def generate_image_from_quiz(question: str, answer: str, retry_count: int = 0, max_retries: int = 3) -> Image.Image:
     try:
         api_key = getattr(config, 'GOOGLE_API_KEY', None)
         client = genai.Client(api_key=api_key) if api_key else genai.Client()
@@ -47,6 +48,30 @@ def generate_image_from_quiz(question: str, answer: str) -> Image.Image:
 
         # 修正: response と response.candidates が有効かチェックする
         if response and response.candidates:
+            # contentがNoneでないかチェック
+            if response.candidates[0].content is None:
+                print("❌ 応答のcontentがNoneでした。")
+                if retry_count < max_retries:
+                    wait_time = 2 ** retry_count  # 指数バックオフ: 1秒, 2秒, 4秒
+                    print(f"⏳ {wait_time}秒待機してから再試行します... (試行 {retry_count + 1}/{max_retries})")
+                    time.sleep(wait_time)
+                    return generate_image_from_quiz(question, answer, retry_count + 1, max_retries)
+                else:
+                    print(f"❌ 最大リトライ回数({max_retries})に達しました。この問題をスキップします。")
+                    return None
+            
+            # partsがNoneまたは空でないかチェック
+            if not response.candidates[0].content.parts:
+                print("❌ 応答のpartsが空でした。")
+                if retry_count < max_retries:
+                    wait_time = 2 ** retry_count
+                    print(f"⏳ {wait_time}秒待機してから再試行します... (試行 {retry_count + 1}/{max_retries})")
+                    time.sleep(wait_time)
+                    return generate_image_from_quiz(question, answer, retry_count + 1, max_retries)
+                else:
+                    print(f"❌ 最大リトライ回数({max_retries})に達しました。この問題をスキップします。")
+                    return None
+            
             image_found = False
             for part in response.candidates[0].content.parts:
                 if part.inline_data is not None:
@@ -58,18 +83,52 @@ def generate_image_from_quiz(question: str, answer: str) -> Image.Image:
             # ループが終了しても画像が見つからなかった場合
             if not image_found:
                 print("❌ 応答に画像データが含まれていませんでした。")
-                print("もう一度生成を行います")
                 # テキスト応答があれば表示する（デバッグ用）
                 if response.candidates[0].content.parts and response.candidates[0].content.parts[0].text:
                     print(f"モデルのテキスト応答: {response.candidates[0].content.parts[0].text}")
-                return generate_image_from_quiz(question, answer)
+                
+                if retry_count < max_retries:
+                    wait_time = 2 ** retry_count
+                    print(f"⏳ {wait_time}秒待機してから再試行します... (試行 {retry_count + 1}/{max_retries})")
+                    time.sleep(wait_time)
+                    return generate_image_from_quiz(question, answer, retry_count + 1, max_retries)
+                else:
+                    print(f"❌ 最大リトライ回数({max_retries})に達しました。この問題をスキップします。")
+                    return None
         else:
             # response自体が無効だった場合
             print("❌ モデルから有効な応答が得られませんでした。")
-            print("もう一度生成を行います")
-            return generate_image_from_quiz(question, answer)
+            if retry_count < max_retries:
+                wait_time = 2 ** retry_count
+                print(f"⏳ {wait_time}秒待機してから再試行します... (試行 {retry_count + 1}/{max_retries})")
+                time.sleep(wait_time)
+                return generate_image_from_quiz(question, answer, retry_count + 1, max_retries)
+            else:
+                print(f"❌ 最大リトライ回数({max_retries})に達しました。この問題をスキップします。")
+                return None
 
     except Exception as e:
-        print(f"エラーが発生しました: {e}")
-        print("もう一度生成を行います")
-        return generate_image_from_quiz(question, answer)
+        print(f"❌ エラーが発生しました: {type(e).__name__}: {e}")
+        
+        # レート制限エラーの特別処理
+        if "429" in str(e) or "quota" in str(e).lower() or "rate" in str(e).lower():
+            print("⚠️ APIレート制限またはクォータ超過の可能性があります。")
+            if retry_count < max_retries:
+                wait_time = 10 * (retry_count + 1)  # レート制限の場合は長めに待機: 10秒, 20秒, 30秒
+                print(f"⏳ {wait_time}秒待機してから再試行します... (試行 {retry_count + 1}/{max_retries})")
+                time.sleep(wait_time)
+                return generate_image_from_quiz(question, answer, retry_count + 1, max_retries)
+            else:
+                print(f"❌ 最大リトライ回数({max_retries})に達しました。この問題をスキップします。")
+                return None
+        
+        # その他のエラー
+        if retry_count < max_retries:
+            wait_time = 2 ** retry_count
+            print(f"⏳ {wait_time}秒待機してから再試行します... (試行 {retry_count + 1}/{max_retries})")
+            time.sleep(wait_time)
+            return generate_image_from_quiz(question, answer, retry_count + 1, max_retries)
+        else:
+            print(f"❌ 最大リトライ回数({max_retries})に達しました。この問題をスキップします。")
+            return None
+
